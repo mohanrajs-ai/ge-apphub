@@ -47,3 +47,10 @@
 
 ## Phase: Review Fixes
 - [x] Task: Apply review suggestions c6fe01a
+
+## Phase 5: Embedded Iframe Application Launch & Workforce Identity URL Integration [checkpoint: d930da2]
+- [x] Task: Configure Workforce Identity GE launch URL and implement embedded iframe application viewer d930da2
+  - [x] Update backend catalog metadata (`firestore.py`) and tests (`test_catalog_service.py`) to include the Workforce Identity OIDC Vertex AI Search URL (`https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`)
+  - [x] Write failing frontend tests (`Catalog.test.tsx`) verifying that clicking **Launch App** opens an embedded `<iframe>` with the application's `launch_url` instead of redirecting, and supports closing the iframe view (Red Phase)
+  - [x] Implement embedded `<iframe>` viewer (`AppIframeModal.tsx`) and update `AppCard.tsx`, `CatalogGrid.tsx`, and `App.tsx` (Green Phase)
+  - [x] Rebuild production frontend bundle (`npm run build`) and verify backend and frontend test suites pass with >80% coverage
