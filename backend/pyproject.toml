@@ -1,0 +1,21 @@
+[project]
+name = "ge-apphub-backend"
+version = "0.1.0"
+description = "Gemini Enterprise AppHub FastAPI Backend"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 80
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+
+[tool.ruff.lint.isort]
+force-single-line = true
+known-first-party = ["app"]
+
