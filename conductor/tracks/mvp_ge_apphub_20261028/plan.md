@@ -39,8 +39,8 @@
   - [x] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
   - [x] Refactor UI styling for Material 3 / Cloud Console polish, responsive grid layout, and WCAG AA accessibility
   - [x] Verify frontend test coverage (>80%) and TypeScript build (`npm run build`)
-- [~] Task: Wire Production Static Asset Serving & Containerization
-  - [ ] Write failing backend test verifying FastAPI static SPA fallback mounting when `frontend/dist` is present (Red Phase)
-  - [ ] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
-  - [ ] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Wire Production Static Asset Serving & Containerization 6dd61db
+  - [x] Write failing backend test verifying FastAPI static SPA fallback mounting when `frontend/dist` is present (Red Phase)
+  - [x] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
+  - [x] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
