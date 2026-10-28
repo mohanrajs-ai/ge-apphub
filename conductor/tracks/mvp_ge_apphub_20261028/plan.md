@@ -34,12 +34,12 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) d7cc948
 
 ## Phase 4: Searchable & Filterable Application Catalog UI
-- [~] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid
-  - [ ] Write failing unit/integration tests (`frontend/src/__tests__/Catalog.test.tsx`) covering real-time search input, category and department chip filtering, clear-filters button, card rendering (icon, badges, outcome summary, tags, Launch App link), loading skeletons, and empty/error states (Red Phase)
-  - [ ] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
-  - [ ] Refactor UI styling for Material 3 / Cloud Console polish, responsive grid layout, and WCAG AA accessibility
-  - [ ] Verify frontend test coverage (>80%) and TypeScript build (`npm run build`)
-- [ ] Task: Wire Production Static Asset Serving & Containerization
+- [x] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid 50585d1
+  - [x] Write failing unit/integration tests (`frontend/src/__tests__/Catalog.test.tsx`) covering real-time search input, category and department chip filtering, clear-filters button, card rendering (icon, badges, outcome summary, tags, Launch App link), loading skeletons, and empty/error states (Red Phase)
+  - [x] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
+  - [x] Refactor UI styling for Material 3 / Cloud Console polish, responsive grid layout, and WCAG AA accessibility
+  - [x] Verify frontend test coverage (>80%) and TypeScript build (`npm run build`)
+- [~] Task: Wire Production Static Asset Serving & Containerization
   - [ ] Write failing backend test verifying FastAPI static SPA fallback mounting when `frontend/dist` is present (Red Phase)
   - [ ] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
   - [ ] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
