@@ -25,16 +25,16 @@
   - [x] Verify backend test suite passes with >80% coverage and zero lint issues
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 0870d36
 
-## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell
+## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell [checkpoint: d7cc948]
 - [x] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest d7cc948
   - [x] Initialize `/frontend` project with Vite (`react-ts`), Tailwind CSS configured with Material 3 / Gemini color tokens, Lucide icons, and Vitest + React Testing Library setup
   - [x] Write failing component tests (`frontend/src/__tests__/Header.test.tsx`) for the AppHub Header, branding, Light/Dark theme toggle, and local dev role-switcher control (Red Phase)
   - [x] Implement `ThemeContext`, `Header` component, and API client service (`frontend/src/api/client.ts`) fetching `/api/v1/me` and `/api/v1/apps` (Green Phase)
   - [x] Verify `CI=true npm test` passes with >80% coverage
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) d7cc948
 
 ## Phase 4: Searchable & Filterable Application Catalog UI
-- [ ] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid
+- [~] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid
   - [ ] Write failing unit/integration tests (`frontend/src/__tests__/Catalog.test.tsx`) covering real-time search input, category and department chip filtering, clear-filters button, card rendering (icon, badges, outcome summary, tags, Launch App link), loading skeletons, and empty/error states (Red Phase)
   - [ ] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
   - [ ] Refactor UI styling for Material 3 / Cloud Console polish, responsive grid layout, and WCAG AA accessibility
