@@ -48,8 +48,8 @@
 ## Phase: Review Fixes
 - [x] Task: Apply review suggestions c6fe01a
 
-## Phase 5: Workforce Identity URL Integration & Direct Redirect Launch [checkpoint: d930da2]
-- [x] Task: Configure Workforce Identity GE launch URL and direct redirect launch CTA d930da2
+## Phase 5: Workforce Identity URL Integration & Dedicated Popup Window Launch [checkpoint: 10f16a2]
+- [x] Task: Configure Workforce Identity GE launch URL and dedicated popup window launch CTA 10f16a2
   - [x] Update backend catalog metadata (`firestore.py`) and tests (`test_catalog_service.py`) to include the Workforce Identity OIDC Vertex AI Search URL (`https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`)
-  - [x] Configure `AppCard.tsx` **Launch App** CTA as a direct redirect link (`target="_blank"` with `rel="noopener noreferrer"`) and verify in `Catalog.test.tsx` (since Google Cloud Workforce Identity OIDC sign-in blocks `<iframe>` embedding via `X-Frame-Options`)
+  - [x] Implement [`launchAppPopup()`](file:///Users/mohanrajs/aops/geapphub/frontend/src/components/AppCard.tsx#L49-L77) in `AppCard.tsx` to open the application in a centered standalone popup window (`popup=yes,width=1280,height=820`) over AppHub so `X-Frame-Options: SAMEORIGIN` and `SameSite=strict` OIDC cookies succeed
   - [x] Rebuild production frontend bundle (`npm run build`) and verify backend and frontend test suites pass with >80% coverage
