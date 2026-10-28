@@ -12,7 +12,7 @@
   - [x] Verify test suite passes with >80% coverage
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 2c2f58f
 
-## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline
+## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline [checkpoint: 0870d36]
 - [x] Task: Implement Discovery Engine client service and mock fallback provider f1ba356
   - [x] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
   - [x] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
@@ -23,10 +23,10 @@
   - [x] Write failing API integration tests (`backend/tests/test_apps_api.py`) for `GET /api/v1/apps` with search (`q`), `category`, `department`, `tag`, and role filtering (Red Phase)
   - [x] Implement `GET /api/v1/apps` router (`backend/app/routers/apps.py`) and wire into FastAPI app (Green Phase)
   - [x] Verify backend test suite passes with >80% coverage and zero lint issues
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 0870d36
 
 ## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell
-- [ ] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest
+- [~] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest
   - [ ] Initialize `/frontend` project with Vite (`react-ts`), Tailwind CSS configured with Material 3 / Gemini color tokens, Lucide icons, and Vitest + React Testing Library setup
   - [ ] Write failing component tests (`frontend/src/__tests__/Header.test.tsx`) for the AppHub Header, branding, Light/Dark theme toggle, and local dev role-switcher control (Red Phase)
   - [ ] Implement `ThemeContext`, `Header` component, and API client service (`frontend/src/api/client.ts`) fetching `/api/v1/me` and `/api/v1/apps` (Green Phase)
