@@ -1,6 +1,6 @@
 # Implementation Plan: Gemini Enterprise AppHub MVP (`mvp_ge_apphub_20261028`)
 
-## Phase 1: Monorepo Scaffolding & Backend Foundation
+## Phase 1: Monorepo Scaffolding & Backend Foundation [checkpoint: 2c2f58f]
 - [x] Task: Initialize Python backend project structure and FastAPI health endpoint d0f8037
   - [x] Create `/backend` directory, `pyproject.toml` / `requirements.txt`, and environment configuration (`config.py`) supporting `GCP_PROJECT_ID`, `GCP_LOCATION`, `FIRESTORE_COLLECTION`, and `USE_MOCK_DATA`
   - [x] Write failing unit tests (`backend/tests/test_health.py`) for `GET /api/v1/health` and configuration loading (Red Phase)
@@ -10,10 +10,10 @@
   - [x] Write failing unit tests (`backend/tests/test_auth.py`) for extracting user email and roles from Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`) and local dev override headers (`X-Dev-User-Email`, `X-Dev-User-Role`) (Red Phase)
   - [x] Implement authentication dependency (`backend/app/auth.py`), Pydantic user models (`backend/app/models.py`), and `GET /api/v1/me` endpoint (Green Phase)
   - [x] Verify test suite passes with >80% coverage
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 2c2f58f
 
 ## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline
-- [ ] Task: Implement Discovery Engine client service and mock fallback provider
+- [~] Task: Implement Discovery Engine client service and mock fallback provider
   - [ ] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
   - [ ] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
   - [ ] Verify test suite passes with >80% coverage
