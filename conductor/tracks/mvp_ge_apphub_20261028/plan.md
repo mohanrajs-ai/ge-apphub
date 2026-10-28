@@ -33,7 +33,7 @@
   - [x] Verify `CI=true npm test` passes with >80% coverage
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) d7cc948
 
-## Phase 4: Searchable & Filterable Application Catalog UI
+## Phase 4: Searchable & Filterable Application Catalog UI [checkpoint: 6dd61db]
 - [x] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid 50585d1
   - [x] Write failing unit/integration tests (`frontend/src/__tests__/Catalog.test.tsx`) covering real-time search input, category and department chip filtering, clear-filters button, card rendering (icon, badges, outcome summary, tags, Launch App link), loading skeletons, and empty/error states (Red Phase)
   - [x] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
@@ -43,4 +43,4 @@
   - [x] Write failing backend test verifying FastAPI static SPA fallback mounting when `frontend/dist` is present (Red Phase)
   - [x] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
   - [x] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 6dd61db
