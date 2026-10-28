@@ -53,3 +53,12 @@ class CatalogApplication(pydantic.BaseModel):
     solution_type: str
     allowed_roles: list[str]
     featured: bool = False
+
+
+class CatalogResponse(pydantic.BaseModel):
+    """Represents the API response payload for GET /api/v1/apps."""
+
+    items: list[CatalogApplication]
+    total: int
+    categories: list[str]
+    departments: list[str]

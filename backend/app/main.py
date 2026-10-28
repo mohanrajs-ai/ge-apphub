@@ -6,6 +6,7 @@ from fastapi.middleware import cors
 from app import auth
 from app import config
 from app import models
+from app.routers import apps
 
 
 def create_app() -> fastapi.FastAPI:
@@ -53,6 +54,8 @@ def create_app() -> fastapi.FastAPI:
     ) -> models.UserContext:
         """Returns the resolved identity and roles for the current user."""
         return user
+
+    application.include_router(apps.router)
 
     return application
 
