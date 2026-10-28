@@ -1,0 +1,8 @@
+{
+  "track_id": "mvp_ge_apphub_20261028",
+  "type": "mvp",
+  "status": "new",
+  "description": "Initial MVP implementation of Gemini Enterprise AppHub (FastAPI + Discovery Engine SDK + Firestore backend, and React + TypeScript searchable application catalog frontend)",
+  "created_at": "2026-10-28T17:52:30+05:30",
+  "updated_at": "2026-10-28T17:52:30+05:30"
+}

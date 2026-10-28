@@ -1,0 +1,46 @@
+# Implementation Plan: Gemini Enterprise AppHub MVP (`mvp_ge_apphub_20261028`)
+
+## Phase 1: Monorepo Scaffolding & Backend Foundation
+- [ ] Task: Initialize Python backend project structure and FastAPI health endpoint
+  - [ ] Create `/backend` directory, `pyproject.toml` / `requirements.txt`, and environment configuration (`config.py`) supporting `GCP_PROJECT_ID`, `GCP_LOCATION`, `FIRESTORE_COLLECTION`, and `USE_MOCK_DATA`
+  - [ ] Write failing unit tests (`backend/tests/test_health.py`) for `GET /api/v1/health` and configuration loading (Red Phase)
+  - [ ] Implement FastAPI application factory (`backend/app/main.py`) and `/api/v1/health` endpoint to pass tests (Green Phase)
+  - [ ] Verify `pytest --cov=app` passes with >80% coverage and clean `ruff` linting
+- [ ] Task: Implement User Identity & Role Resolution Middleware/Dependency
+  - [ ] Write failing unit tests (`backend/tests/test_auth.py`) for extracting user email and roles from Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`) and local dev override headers (`X-Dev-User-Email`, `X-Dev-User-Role`) (Red Phase)
+  - [ ] Implement authentication dependency (`backend/app/auth.py`), Pydantic user models (`backend/app/models.py`), and `GET /api/v1/me` endpoint (Green Phase)
+  - [ ] Verify test suite passes with >80% coverage
+- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+
+## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline
+- [ ] Task: Implement Discovery Engine client service and mock fallback provider
+  - [ ] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
+  - [ ] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
+  - [ ] Verify test suite passes with >80% coverage
+- [ ] Task: Implement Firestore metadata enrichment service and catalog merger
+  - [ ] Write failing unit tests (`backend/tests/test_catalog_service.py`) verifying Firestore document retrieval (`google-cloud-firestore`), metadata merging (categories, departments, tags, descriptions, launch URLs, and `allowed_roles`), role-based visibility filtering, and search/query filtering (Red Phase)
+  - [ ] Implement `FirestoreMetadataService` (`backend/app/services/firestore.py`) and `CatalogService` (`backend/app/services/catalog.py`) to merge live/mock engines with Firestore metadata and enforce role-based visibility (Green Phase)
+  - [ ] Write failing API integration tests (`backend/tests/test_apps_api.py`) for `GET /api/v1/apps` with search (`q`), `category`, `department`, `tag`, and role filtering (Red Phase)
+  - [ ] Implement `GET /api/v1/apps` router (`backend/app/routers/apps.py`) and wire into FastAPI app (Green Phase)
+  - [ ] Verify backend test suite passes with >80% coverage and zero lint issues
+- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+
+## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell
+- [ ] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest
+  - [ ] Initialize `/frontend` project with Vite (`react-ts`), Tailwind CSS configured with Material 3 / Gemini color tokens, Lucide icons, and Vitest + React Testing Library setup
+  - [ ] Write failing component tests (`frontend/src/__tests__/Header.test.tsx`) for the AppHub Header, branding, Light/Dark theme toggle, and local dev role-switcher control (Red Phase)
+  - [ ] Implement `ThemeContext`, `Header` component, and API client service (`frontend/src/api/client.ts`) fetching `/api/v1/me` and `/api/v1/apps` (Green Phase)
+  - [ ] Verify `CI=true npm test` passes with >80% coverage
+- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+
+## Phase 4: Searchable & Filterable Application Catalog UI
+- [ ] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid
+  - [ ] Write failing unit/integration tests (`frontend/src/__tests__/Catalog.test.tsx`) covering real-time search input, category and department chip filtering, clear-filters button, card rendering (icon, badges, outcome summary, tags, Launch App link), loading skeletons, and empty/error states (Red Phase)
+  - [ ] Implement `SearchFilterBar`, `AppCard`, `CatalogGrid`, and main `App` view (Green Phase)
+  - [ ] Refactor UI styling for Material 3 / Cloud Console polish, responsive grid layout, and WCAG AA accessibility
+  - [ ] Verify frontend test coverage (>80%) and TypeScript build (`npm run build`)
+- [ ] Task: Wire Production Static Asset Serving & Containerization
+  - [ ] Write failing backend test verifying FastAPI static SPA fallback mounting when `frontend/dist` is present (Red Phase)
+  - [ ] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
+  - [ ] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
+- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
