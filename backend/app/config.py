@@ -12,6 +12,7 @@ class Settings(pydantic.BaseModel):
     gcp_location: str = "global"
     firestore_collection: str = "ge_app_catalog"
     use_mock_data: bool = True
+    admin_users: list[str] = pydantic.Field(default_factory=list)
 
 
 def _parse_bool(value: str | None, default: bool = True) -> bool:
@@ -29,6 +30,20 @@ def _parse_bool(value: str | None, default: bool = True) -> bool:
     return value.strip().lower() in ("1", "true", "yes", "on")
 
 
+def _parse_csv(value: str | None) -> list[str]:
+    """Parses a comma-separated environment variable into a list of strings.
+
+    Args:
+        value: Raw comma-separated string.
+
+    Returns:
+        List of non-empty trimmed strings.
+    """
+    if not value:
+        return []
+    return [item.strip().lower() for item in value.split(",") if item.strip()]
+
+
 def get_settings() -> Settings:
     """Loads and returns current application settings from the environment.
 
@@ -44,4 +59,5 @@ def get_settings() -> Settings:
         use_mock_data=_parse_bool(
             os.environ.get("USE_MOCK_DATA"), default=True
         ),
+        admin_users=_parse_csv(os.environ.get("ADMIN_USERS")),
     )

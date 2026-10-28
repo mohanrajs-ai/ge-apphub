@@ -3,7 +3,9 @@
 import fastapi
 from fastapi.middleware import cors
 
+from app import auth
 from app import config
+from app import models
 
 
 def create_app() -> fastapi.FastAPI:
@@ -40,6 +42,17 @@ def create_app() -> fastapi.FastAPI:
             "mode": mode,
             "gcp_project_id": settings.gcp_project_id,
         }
+
+    @application.get(
+        "/api/v1/me",
+        response_model=models.UserContext,
+        tags=["auth"],
+    )
+    def get_current_user(
+        user: models.UserContext = fastapi.Depends(auth.resolve_current_user),
+    ) -> models.UserContext:
+        """Returns the resolved identity and roles for the current user."""
+        return user
 
     return application
 
