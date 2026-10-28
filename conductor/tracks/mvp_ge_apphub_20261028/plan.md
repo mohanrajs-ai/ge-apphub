@@ -6,11 +6,11 @@
   - [x] Write failing unit tests (`backend/tests/test_health.py`) for `GET /api/v1/health` and configuration loading (Red Phase)
   - [x] Implement FastAPI application factory (`backend/app/main.py`) and `/api/v1/health` endpoint to pass tests (Green Phase)
   - [x] Verify `pytest --cov=app` passes with >80% coverage and clean `ruff` linting
-- [~] Task: Implement User Identity & Role Resolution Middleware/Dependency
-  - [ ] Write failing unit tests (`backend/tests/test_auth.py`) for extracting user email and roles from Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`) and local dev override headers (`X-Dev-User-Email`, `X-Dev-User-Role`) (Red Phase)
-  - [ ] Implement authentication dependency (`backend/app/auth.py`), Pydantic user models (`backend/app/models.py`), and `GET /api/v1/me` endpoint (Green Phase)
-  - [ ] Verify test suite passes with >80% coverage
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Implement User Identity & Role Resolution Middleware/Dependency 2c2f58f
+  - [x] Write failing unit tests (`backend/tests/test_auth.py`) for extracting user email and roles from Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`) and local dev override headers (`X-Dev-User-Email`, `X-Dev-User-Role`) (Red Phase)
+  - [x] Implement authentication dependency (`backend/app/auth.py`), Pydantic user models (`backend/app/models.py`), and `GET /api/v1/me` endpoint (Green Phase)
+  - [x] Verify test suite passes with >80% coverage
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
 
 ## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline
 - [ ] Task: Implement Discovery Engine client service and mock fallback provider
