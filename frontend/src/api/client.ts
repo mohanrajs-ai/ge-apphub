@@ -28,7 +28,8 @@ export async function fetchCurrentUser(devRole?: string): Promise<UserContext> {
   if (!response.ok) {
     throw new Error(`Failed to fetch user profile: HTTP ${response.status}`);
   }
-  return response.json() as Promise<UserContext>;
+  const data: UserContext = await response.json();
+  return data;
 }
 
 /**
@@ -61,5 +62,6 @@ export async function fetchApps(
       `Failed to fetch application catalog: HTTP ${response.status}`,
     );
   }
-  return response.json() as Promise<CatalogResponse>;
+  const data: CatalogResponse = await response.json();
+  return data;
 }

@@ -13,6 +13,7 @@ htmlcov/
 node_modules/
 frontend/dist/
 frontend/coverage/
+*.tsbuildinfo
 *.log
 
 # OS / IDE
