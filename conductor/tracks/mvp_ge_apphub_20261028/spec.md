@@ -33,10 +33,10 @@ This track delivers the Minimum Viable Product (MVP) for **Gemini Enterprise App
 - **Instant Search & Multi-Faceted Filtering:**
   - Prominent search input filtering applications in real time across title, description, category, department, and tags.
   - Interactive filter chips for **Category** and **Department**, plus active filter count and a one-click *Clear Filters* action.
-- **Application Catalog Grid & Direct Redirect Launch:**
+- **Application Catalog Grid & Dedicated Popup Window Launch:**
   - Responsive Material 3 / Cloud Console-inspired card grid.
-  - Each card displays: Application Icon, Display Name, Category & Department badges, concise 1–2 sentence outcome-oriented description, capability tags, and a prominent **Launch App** link (`target="_blank"` with `rel="noopener noreferrer"`).
-  - Clicking **Launch App** redirects directly to the target Gemini Enterprise application URL (such as `https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`).
+  - Each card displays: Application Icon, Display Name, Category & Department badges, concise 1–2 sentence outcome-oriented description, capability tags, and a prominent **Launch App** button.
+  - Clicking **Launch App** opens the target Gemini Enterprise application URL (such as `https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`) in a centered standalone popup window (`window.open` with `popup=yes,width=1280,height=820`) so top-level Workforce Identity OIDC authentication succeeds while keeping the user on the AppHub portal.
 - **Empty, Loading & Error States:**
   - Skeleton loading cards while fetching data.
   - Helpful empty state when search/filter combinations match no applications, with a quick reset button.

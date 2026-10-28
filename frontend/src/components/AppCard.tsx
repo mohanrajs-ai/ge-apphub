@@ -41,6 +41,41 @@ function renderAppIcon(iconName: string): React.ReactElement {
 }
 
 /**
+ * Opens the target Gemini Enterprise application URL in a centered standalone
+ * popup window so top-level Workforce Identity OIDC sign-in succeeds without
+ * navigating away from the AppHub portal tab.
+ */
+export function launchAppPopup(app: CatalogApplication): void {
+  const width = 1280;
+  const height = 820;
+  const screenLeft = window.screenLeft ?? window.screenX ?? 0;
+  const screenTop = window.screenTop ?? window.screenY ?? 0;
+  const outerWidth = window.outerWidth || 1440;
+  const outerHeight = window.outerHeight || 900;
+  const left = Math.max(0, Math.round(screenLeft + (outerWidth - width) / 2));
+  const top = Math.max(0, Math.round(screenTop + (outerHeight - height) / 2));
+
+  const features = [
+    'popup=yes',
+    `width=${width}`,
+    `height=${height}`,
+    `left=${left}`,
+    `top=${top}`,
+    'resizable=yes',
+    'scrollbars=yes',
+  ].join(',');
+
+  const popupRef = window.open(
+    app.launch_url,
+    `ge_app_${app.engine_id}`,
+    features,
+  );
+  if (popupRef) {
+    popupRef.focus();
+  }
+}
+
+/**
  * Renders a Material 3 / Cloud Console-inspired card for a GE application.
  */
 export function AppCard({
@@ -98,16 +133,15 @@ export function AppCard({
           <span>{app.location}</span>
         </div>
 
-        <a
-          href={app.launch_url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => launchAppPopup(app)}
           aria-label={`Launch App ${app.display_name}`}
           className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
         >
           <span>Launch App</span>
           <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+        </button>
       </div>
     </article>
   );

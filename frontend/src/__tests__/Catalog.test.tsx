@@ -50,7 +50,8 @@ describe('Gemini Enterprise AppHub Catalog View', () => {
     vi.restoreAllMocks();
   });
 
-  it('loads and displays application cards with Workforce Identity launch redirect link', async () => {
+  it('loads application cards and opens a centered popup window on Launch App click', async () => {
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null);
     vi.spyOn(apiClient, 'fetchCurrentUser').mockResolvedValue({
       email: 'developer@enterprise.example.com',
       user_id: 'dev-user-001',
@@ -76,10 +77,19 @@ describe('Gemini Enterprise AppHub Catalog View', () => {
       screen.getByText('Cloud FinOps & Spend Intelligence Agent'),
     ).toBeInTheDocument();
 
-    const launchLinks = screen.getAllByRole('link', { name: /launch app/i });
-    expect(launchLinks).toHaveLength(2);
-    expect(launchLinks[0]).toHaveAttribute('href', WORKFORCE_OIDC_LAUNCH_URL);
-    expect(launchLinks[0]).toHaveAttribute('target', '_blank');
+    const launchButtons = screen.getAllByRole('button', {
+      name: /launch app/i,
+    });
+    expect(launchButtons).toHaveLength(2);
+
+    fireEvent.click(launchButtons[0]);
+
+    expect(openSpy).toHaveBeenCalledTimes(1);
+    expect(openSpy).toHaveBeenCalledWith(
+      WORKFORCE_OIDC_LAUNCH_URL,
+      'ge_app_ge-enterprise-search',
+      expect.stringContaining('popup=yes,width=1280,height=820'),
+    );
   });
 
   it('filters applications in real time by search query, category, department, and tag', async () => {
