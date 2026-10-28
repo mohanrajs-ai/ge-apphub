@@ -26,12 +26,12 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 0870d36
 
 ## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell
-- [~] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest
-  - [ ] Initialize `/frontend` project with Vite (`react-ts`), Tailwind CSS configured with Material 3 / Gemini color tokens, Lucide icons, and Vitest + React Testing Library setup
-  - [ ] Write failing component tests (`frontend/src/__tests__/Header.test.tsx`) for the AppHub Header, branding, Light/Dark theme toggle, and local dev role-switcher control (Red Phase)
-  - [ ] Implement `ThemeContext`, `Header` component, and API client service (`frontend/src/api/client.ts`) fetching `/api/v1/me` and `/api/v1/apps` (Green Phase)
-  - [ ] Verify `CI=true npm test` passes with >80% coverage
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest d7cc948
+  - [x] Initialize `/frontend` project with Vite (`react-ts`), Tailwind CSS configured with Material 3 / Gemini color tokens, Lucide icons, and Vitest + React Testing Library setup
+  - [x] Write failing component tests (`frontend/src/__tests__/Header.test.tsx`) for the AppHub Header, branding, Light/Dark theme toggle, and local dev role-switcher control (Red Phase)
+  - [x] Implement `ThemeContext`, `Header` component, and API client service (`frontend/src/api/client.ts`) fetching `/api/v1/me` and `/api/v1/apps` (Green Phase)
+  - [x] Verify `CI=true npm test` passes with >80% coverage
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
 
 ## Phase 4: Searchable & Filterable Application Catalog UI
 - [ ] Task: Implement Search Bar, Category/Department Filter Chips, and Application Card Grid
