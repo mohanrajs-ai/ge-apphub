@@ -17,13 +17,13 @@
   - [x] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
   - [x] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
   - [x] Verify test suite passes with >80% coverage
-- [~] Task: Implement Firestore metadata enrichment service and catalog merger
-  - [ ] Write failing unit tests (`backend/tests/test_catalog_service.py`) verifying Firestore document retrieval (`google-cloud-firestore`), metadata merging (categories, departments, tags, descriptions, launch URLs, and `allowed_roles`), role-based visibility filtering, and search/query filtering (Red Phase)
-  - [ ] Implement `FirestoreMetadataService` (`backend/app/services/firestore.py`) and `CatalogService` (`backend/app/services/catalog.py`) to merge live/mock engines with Firestore metadata and enforce role-based visibility (Green Phase)
-  - [ ] Write failing API integration tests (`backend/tests/test_apps_api.py`) for `GET /api/v1/apps` with search (`q`), `category`, `department`, `tag`, and role filtering (Red Phase)
-  - [ ] Implement `GET /api/v1/apps` router (`backend/app/routers/apps.py`) and wire into FastAPI app (Green Phase)
-  - [ ] Verify backend test suite passes with >80% coverage and zero lint issues
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Implement Firestore metadata enrichment service and catalog merger 0870d36
+  - [x] Write failing unit tests (`backend/tests/test_catalog_service.py`) verifying Firestore document retrieval (`google-cloud-firestore`), metadata merging (categories, departments, tags, descriptions, launch URLs, and `allowed_roles`), role-based visibility filtering, and search/query filtering (Red Phase)
+  - [x] Implement `FirestoreMetadataService` (`backend/app/services/firestore.py`) and `CatalogService` (`backend/app/services/catalog.py`) to merge live/mock engines with Firestore metadata and enforce role-based visibility (Green Phase)
+  - [x] Write failing API integration tests (`backend/tests/test_apps_api.py`) for `GET /api/v1/apps` with search (`q`), `category`, `department`, `tag`, and role filtering (Red Phase)
+  - [x] Implement `GET /api/v1/apps` router (`backend/app/routers/apps.py`) and wire into FastAPI app (Green Phase)
+  - [x] Verify backend test suite passes with >80% coverage and zero lint issues
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
 
 ## Phase 3: React + TypeScript Frontend Scaffolding & Theme/Identity Shell
 - [ ] Task: Scaffold `/frontend` with React 18, Vite, TypeScript, Tailwind CSS, and Vitest
