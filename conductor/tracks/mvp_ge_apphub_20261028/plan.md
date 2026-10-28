@@ -13,11 +13,11 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 2c2f58f
 
 ## Phase 2: Discovery Engine SDK & Firestore Metadata Enrichment Pipeline
-- [~] Task: Implement Discovery Engine client service and mock fallback provider
-  - [ ] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
-  - [ ] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
-  - [ ] Verify test suite passes with >80% coverage
-- [ ] Task: Implement Firestore metadata enrichment service and catalog merger
+- [x] Task: Implement Discovery Engine client service and mock fallback provider f1ba356
+  - [x] Write failing unit tests (`backend/tests/test_discovery_service.py`) mocking `google-cloud-discoveryengine` (`EngineServiceClient.list_engines`) and testing mock fallback mode (Red Phase)
+  - [x] Implement `DiscoveryEngineService` (`backend/app/services/discovery.py`) to list GE engines and map them to normalized internal models, including curated mock engines when `USE_MOCK_DATA=true` (Green Phase)
+  - [x] Verify test suite passes with >80% coverage
+- [~] Task: Implement Firestore metadata enrichment service and catalog merger
   - [ ] Write failing unit tests (`backend/tests/test_catalog_service.py`) verifying Firestore document retrieval (`google-cloud-firestore`), metadata merging (categories, departments, tags, descriptions, launch URLs, and `allowed_roles`), role-based visibility filtering, and search/query filtering (Red Phase)
   - [ ] Implement `FirestoreMetadataService` (`backend/app/services/firestore.py`) and `CatalogService` (`backend/app/services/catalog.py`) to merge live/mock engines with Firestore metadata and enforce role-based visibility (Green Phase)
   - [ ] Write failing API integration tests (`backend/tests/test_apps_api.py`) for `GET /api/v1/apps` with search (`q`), `category`, `department`, `tag`, and role filtering (Red Phase)
