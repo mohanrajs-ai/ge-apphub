@@ -1,6 +1,10 @@
 """FastAPI application entrypoint for Gemini Enterprise AppHub."""
 
+import pathlib
+
 import fastapi
+from fastapi import responses
+from fastapi import staticfiles
 from fastapi.middleware import cors
 
 from app import auth
@@ -8,9 +12,18 @@ from app import config
 from app import models
 from app.routers import apps
 
+DEFAULT_FRONTEND_DIST = (
+    pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"
+)
 
-def create_app() -> fastapi.FastAPI:
+
+def create_app(
+    static_dir: pathlib.Path | None = None,
+) -> fastapi.FastAPI:
     """Creates and configures the FastAPI application instance.
+
+    Args:
+        static_dir: Optional directory containing compiled SPA static files.
 
     Returns:
         Configured FastAPI application.
@@ -56,6 +69,21 @@ def create_app() -> fastapi.FastAPI:
         return user
 
     application.include_router(apps.router)
+
+    resolved_dist = static_dir or DEFAULT_FRONTEND_DIST
+    index_html = resolved_dist / "index.html"
+    assets_dir = resolved_dist / "assets"
+    if assets_dir.is_dir():
+        application.mount(
+            "/assets",
+            staticfiles.StaticFiles(directory=str(assets_dir)),
+            name="assets",
+        )
+    if index_html.is_file():
+        @application.get("/", include_in_schema=False)
+        def serve_spa_root() -> responses.FileResponse:
+            """Serves the compiled React SPA entrypoint."""
+            return responses.FileResponse(str(index_html))
 
     return application
 
