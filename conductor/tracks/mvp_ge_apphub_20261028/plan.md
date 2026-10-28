@@ -44,3 +44,6 @@
   - [x] Implement SPA static mounting in `backend/app/main.py` and add root `Dockerfile` / startup scripts for unified local and Cloud Run execution (Green Phase)
   - [x] Run full backend (`pytest --cov=app`) and frontend (`CI=true npm test -- --coverage`) suites
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) 6dd61db
+
+## Phase: Review Fixes
+- [x] Task: Apply review suggestions c6fe01a
