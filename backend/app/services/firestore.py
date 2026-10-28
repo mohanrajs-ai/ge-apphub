@@ -41,6 +41,13 @@ def get_mock_enrichment_map() -> dict[str, models.AppEnrichmentMetadata]:
             department="Organization-Wide",
             tags=["search", "knowledge-base", "citations", "workspace"],
             icon_name="Search",
+            launch_url=(
+                "https://auth.cloud.google/signin/locations/global/"
+                "workforcePools/mohan-entra-id-oidc-pool/providers/"
+                "entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2F"
+                "vertexaisearch.cloud.google%2Fhome%2Fcid%2F"
+                "a8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US"
+            ),
             allowed_roles=["*"],
             featured=True,
         ),

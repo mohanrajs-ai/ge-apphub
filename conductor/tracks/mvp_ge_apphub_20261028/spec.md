@@ -33,9 +33,10 @@ This track delivers the Minimum Viable Product (MVP) for **Gemini Enterprise App
 - **Instant Search & Multi-Faceted Filtering:**
   - Prominent search input filtering applications in real time across title, description, category, department, and tags.
   - Interactive filter chips for **Category** and **Department**, plus active filter count and a one-click *Clear Filters* action.
-- **Application Catalog Grid:**
+- **Application Catalog Grid & Embedded Iframe Viewer:**
   - Responsive Material 3 / Cloud Console-inspired card grid.
-  - Each card displays: Application Icon, Display Name, Category & Department badges, concise 1–2 sentence outcome-oriented description, capability tags, and a prominent **Launch App** button (`target="_blank"` with `rel="noopener noreferrer"`).
+  - Each card displays: Application Icon, Display Name, Category & Department badges, concise 1–2 sentence outcome-oriented description, capability tags, and a prominent **Launch App** button.
+  - Clicking **Launch App** renders the target Gemini Enterprise application URL (such as `https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`) inside an embedded `<iframe>` workspace view rather than redirecting the browser tab.
 - **Empty, Loading & Error States:**
   - Skeleton loading cards while fetching data.
   - Helpful empty state when search/filter combinations match no applications, with a quick reset button.
@@ -55,5 +56,5 @@ This track delivers the Minimum Viable Product (MVP) for **Gemini Enterprise App
 
 ## 5. Out of Scope (Deferred to Future Tracks)
 - In-app Admin UI for editing Firestore enrichment metadata directly from the browser.
-- Embedded conversational chat UI inside AppHub (MVP launches the native GE application URL directly).
+- Custom native chat client implementation (MVP embeds the target Gemini Enterprise web application inside an `<iframe>` workspace).
 - End-user ratings, reviews, and bookmark persistence in Firestore.

@@ -16,6 +16,13 @@ def test_firestore_service_mock_mode() -> None:
 
     assert "ge-enterprise-search" in records
     assert "ge-secops-threat-radar" in records
+    ent_search = records["ge-enterprise-search"]
+    assert ent_search.launch_url == (
+        "https://auth.cloud.google/signin/locations/global/workforcePools/"
+        "mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?"
+        "continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid"
+        "%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US"
+    )
     secops = records["ge-secops-threat-radar"]
     assert "admin" in secops.allowed_roles or "security" in secops.allowed_roles
 

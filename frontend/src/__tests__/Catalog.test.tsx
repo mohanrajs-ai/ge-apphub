@@ -1,5 +1,6 @@
 /**
- * Unit and integration tests for SearchFilterBar, AppCard, CatalogGrid, and App.
+ * Unit and integration tests for SearchFilterBar, AppCard, CatalogGrid,
+ * AppIframeModal, and App.
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -7,6 +8,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as apiClient from '../api/client';
 import { App } from '../App';
 import { CatalogApplication } from '../types/catalog';
+
+const WORKFORCE_OIDC_LAUNCH_URL =
+  'https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US';
 
 const SAMPLE_APPS: CatalogApplication[] = [
   {
@@ -18,7 +22,7 @@ const SAMPLE_APPS: CatalogApplication[] = [
     department: 'Organization-Wide',
     tags: ['search', 'knowledge-base', 'workspace'],
     icon_name: 'Search',
-    launch_url: 'https://console.cloud.google.com/gen-app-builder/engines/ge-enterprise-search',
+    launch_url: WORKFORCE_OIDC_LAUNCH_URL,
     location: 'global',
     solution_type: 'SOLUTION_TYPE_SEARCH',
     allowed_roles: ['*'],
@@ -33,7 +37,8 @@ const SAMPLE_APPS: CatalogApplication[] = [
     department: 'Finance',
     tags: ['finops', 'bigquery', 'analytics'],
     icon_name: 'BarChart3',
-    launch_url: 'https://console.cloud.google.com/gen-app-builder/engines/ge-finops-insights',
+    launch_url:
+      'https://console.cloud.google.com/gen-app-builder/engines/ge-finops-insights',
     location: 'us',
     solution_type: 'SOLUTION_TYPE_GENERATIVE_CHAT',
     allowed_roles: ['*'],
@@ -41,12 +46,12 @@ const SAMPLE_APPS: CatalogApplication[] = [
   },
 ];
 
-describe('Gemini Enterprise AppHub Catalog View', () => {
+describe('Gemini Enterprise AppHub Catalog View & Embedded Iframe Launch', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('loads and displays application cards with badges, tags, and Launch App links', async () => {
+  it('loads application cards and opens embedded iframe on Launch App click instead of redirecting', async () => {
     vi.spyOn(apiClient, 'fetchCurrentUser').mockResolvedValue({
       email: 'developer@enterprise.example.com',
       user_id: 'dev-user-001',
@@ -71,9 +76,27 @@ describe('Gemini Enterprise AppHub Catalog View', () => {
     expect(
       screen.getByText('Cloud FinOps & Spend Intelligence Agent'),
     ).toBeInTheDocument();
-    expect(screen.getAllByRole('link', { name: /launch app/i })).toHaveLength(
-      2,
-    );
+
+    const launchButtons = screen.getAllByRole('button', {
+      name: /launch app/i,
+    });
+    expect(launchButtons).toHaveLength(2);
+
+    fireEvent.click(launchButtons[0]);
+
+    const iframe = screen.getByTitle('Gemini Enterprise Knowledge Search');
+    expect(iframe).toBeInTheDocument();
+    expect(iframe.tagName.toLowerCase()).toBe('iframe');
+    expect(iframe).toHaveAttribute('src', WORKFORCE_OIDC_LAUNCH_URL);
+
+    const closeButton = screen.getByRole('button', {
+      name: /close embedded application/i,
+    });
+    fireEvent.click(closeButton);
+
+    expect(
+      screen.queryByTitle('Gemini Enterprise Knowledge Search'),
+    ).not.toBeInTheDocument();
   });
 
   it('filters applications in real time by search query, category, department, and tag', async () => {

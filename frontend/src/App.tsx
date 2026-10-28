@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import { fetchApps, fetchCurrentUser } from './api/client';
+import { AppIframeModal } from './components/AppIframeModal';
 import { CatalogGrid } from './components/CatalogGrid';
 import { Header } from './components/Header';
 import { SearchFilterBar } from './components/SearchFilterBar';
@@ -59,6 +60,9 @@ export function App(): React.ReactElement {
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [selectedDepartment, setSelectedDepartment] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string>('');
+  const [launchedApp, setLaunchedApp] = useState<CatalogApplication | null>(
+    null,
+  );
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -169,12 +173,20 @@ export function App(): React.ReactElement {
           <CatalogGrid
             apps={filteredApps}
             loading={loading}
+            onLaunchApp={setLaunchedApp}
             onResetFilters={handleClearFilters}
             onSelectTag={(tag) =>
               setSelectedTag((prev) => (prev === tag ? '' : tag))
             }
           />
         </main>
+
+        {launchedApp && (
+          <AppIframeModal
+            app={launchedApp}
+            onClose={() => setLaunchedApp(null)}
+          />
+        )}
       </div>
     </ThemeProvider>
   );

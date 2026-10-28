@@ -14,7 +14,7 @@
 - **Zero-Friction Discovery & Instant Search:**
   - The search bar and category/tag filters are immediately accessible at the top of the hub.
   - Search and filter interactions update the catalog view in real time without full-page reloads.
-  - Minimize clicks from landing on the portal to launching a target Gemini Enterprise application.
+  - Minimize clicks from landing on the portal to launching a target Gemini Enterprise application inside an embedded in-portal `<iframe>` viewer.
 - **Clarity & Predictability:**
-  - Every application card displays a consistent structure: Application Icon, Title, Category/Department Badges, Brief Outcome-Oriented Summary, and a clear Launch action.
+  - Every application card displays a consistent structure: Application Icon, Title, Category/Department Badges, Brief Outcome-Oriented Summary, and a clear **Launch App** button that opens the application inside an embedded `<iframe>` view without leaving the hub.
   - Provide informative loading skeletons and clear empty/error states when filters return no matches.

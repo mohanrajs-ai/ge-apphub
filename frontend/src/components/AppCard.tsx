@@ -6,9 +6,9 @@ import React from 'react';
 import {
   BarChart3,
   Code2,
-  ExternalLink,
   Globe,
   Headphones,
+  Play,
   Search,
   ShieldAlert,
   Sparkles,
@@ -18,6 +18,7 @@ import { CatalogApplication } from '../types/catalog';
 
 export interface AppCardProps {
   app: CatalogApplication;
+  onLaunchApp: (app: CatalogApplication) => void;
   onSelectTag?: (tag: string) => void;
 }
 
@@ -45,6 +46,7 @@ function renderAppIcon(iconName: string): React.ReactElement {
  */
 export function AppCard({
   app,
+  onLaunchApp,
   onSelectTag,
 }: AppCardProps): React.ReactElement {
   return (
@@ -98,16 +100,15 @@ export function AppCard({
           <span>{app.location}</span>
         </div>
 
-        <a
-          href={app.launch_url}
-          target="_blank"
-          rel="noopener noreferrer"
+        <button
+          type="button"
+          onClick={() => onLaunchApp(app)}
           aria-label={`Launch App ${app.display_name}`}
           className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 dark:focus:ring-offset-slate-900"
         >
           <span>Launch App</span>
-          <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
-        </a>
+          <Play className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+        </button>
       </div>
     </article>
   );
