@@ -1,6 +1,5 @@
 /**
- * Unit and integration tests for SearchFilterBar, AppCard, CatalogGrid,
- * AppIframeModal, and App.
+ * Unit and integration tests for SearchFilterBar, AppCard, CatalogGrid, and App.
  */
 
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -46,12 +45,12 @@ const SAMPLE_APPS: CatalogApplication[] = [
   },
 ];
 
-describe('Gemini Enterprise AppHub Catalog View & Embedded Iframe Launch', () => {
+describe('Gemini Enterprise AppHub Catalog View', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it('loads application cards and opens embedded iframe on Launch App click instead of redirecting', async () => {
+  it('loads and displays application cards with Workforce Identity launch redirect link', async () => {
     vi.spyOn(apiClient, 'fetchCurrentUser').mockResolvedValue({
       email: 'developer@enterprise.example.com',
       user_id: 'dev-user-001',
@@ -77,26 +76,10 @@ describe('Gemini Enterprise AppHub Catalog View & Embedded Iframe Launch', () =>
       screen.getByText('Cloud FinOps & Spend Intelligence Agent'),
     ).toBeInTheDocument();
 
-    const launchButtons = screen.getAllByRole('button', {
-      name: /launch app/i,
-    });
-    expect(launchButtons).toHaveLength(2);
-
-    fireEvent.click(launchButtons[0]);
-
-    const iframe = screen.getByTitle('Gemini Enterprise Knowledge Search');
-    expect(iframe).toBeInTheDocument();
-    expect(iframe.tagName.toLowerCase()).toBe('iframe');
-    expect(iframe).toHaveAttribute('src', WORKFORCE_OIDC_LAUNCH_URL);
-
-    const closeButton = screen.getByRole('button', {
-      name: /close embedded application/i,
-    });
-    fireEvent.click(closeButton);
-
-    expect(
-      screen.queryByTitle('Gemini Enterprise Knowledge Search'),
-    ).not.toBeInTheDocument();
+    const launchLinks = screen.getAllByRole('link', { name: /launch app/i });
+    expect(launchLinks).toHaveLength(2);
+    expect(launchLinks[0]).toHaveAttribute('href', WORKFORCE_OIDC_LAUNCH_URL);
+    expect(launchLinks[0]).toHaveAttribute('target', '_blank');
   });
 
   it('filters applications in real time by search query, category, department, and tag', async () => {

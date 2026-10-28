@@ -11,7 +11,6 @@ import { AppCard } from './AppCard';
 export interface CatalogGridProps {
   apps: CatalogApplication[];
   loading: boolean;
-  onLaunchApp: (app: CatalogApplication) => void;
   onResetFilters: () => void;
   onSelectTag?: (tag: string) => void;
 }
@@ -22,7 +21,6 @@ export interface CatalogGridProps {
 export function CatalogGrid({
   apps,
   loading,
-  onLaunchApp,
   onResetFilters,
   onSelectTag,
 }: CatalogGridProps): React.ReactElement {
@@ -75,12 +73,7 @@ export function CatalogGrid({
   return (
     <div className="mt-6 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
       {apps.map((app) => (
-        <AppCard
-          key={app.engine_id}
-          app={app}
-          onLaunchApp={onLaunchApp}
-          onSelectTag={onSelectTag}
-        />
+        <AppCard key={app.engine_id} app={app} onSelectTag={onSelectTag} />
       ))}
     </div>
   );

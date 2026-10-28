@@ -17,8 +17,8 @@
 - **Enterprise Authentication & Role-Based Visibility:**
   - Integrated authentication via Google Cloud IAM / Enterprise SSO (OAuth 2.0 / Identity-Aware Proxy / Workforce Identity).
   - Role-aware catalog visibility ensuring users discover and launch applications aligned with their organization permissions.
-- **Seamless Embedded Application Launch (`<iframe>`):**
-  - Clicking **Launch App** loads the target Gemini Enterprise application URL (including Workforce Identity Federation / OIDC sign-in continuation URLs for Vertex AI Search / Gemini Enterprise web apps) directly inside an embedded `<iframe>` workspace within AppHub instead of redirecting away from the portal.
+- **Seamless Application Launch:**
+  - Direct, single-click redirect from the catalog to the target Gemini Enterprise application web interface (including Workforce Identity Federation / OIDC sign-in continuation URLs for Vertex AI Search / Gemini Enterprise web apps).
 
 ## 4. Key Success Metrics
 - **Time-to-Discovery:** Reduction in time taken for enterprise users to locate and access relevant Gemini Enterprise applications.
