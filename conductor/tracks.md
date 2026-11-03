@@ -7,5 +7,5 @@
 
 ---
 
-- [ ] **Track: User Authentication & Cloud Identity Group-Based Catalog Filtering**
+- [x] **Track: User Authentication & Cloud Identity Group-Based Catalog Filtering**
   *Link: [./tracks/user_auth_group_filtering_20261103/index.md](./tracks/user_auth_group_filtering_20261103/index.md)*
