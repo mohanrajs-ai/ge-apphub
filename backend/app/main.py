@@ -11,6 +11,7 @@ from app import auth
 from app import config
 from app import models
 from app.routers import apps
+from app.routers import auth as auth_router
 
 DEFAULT_FRONTEND_DIST = (
     pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -68,6 +69,7 @@ def create_app(
         """Returns the resolved identity and roles for the current user."""
         return user
 
+    application.include_router(auth_router.router)
     application.include_router(apps.router)
 
     resolved_dist = static_dir or DEFAULT_FRONTEND_DIST

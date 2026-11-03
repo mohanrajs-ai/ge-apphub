@@ -9,6 +9,7 @@ class UserContext(pydantic.BaseModel):
     email: str
     user_id: str
     roles: list[str]
+    groups: list[str] = pydantic.Field(default_factory=list)
     auth_source: str
 
 
@@ -22,6 +23,7 @@ class DiscoveredEngine(pydantic.BaseModel):
     industry_vertical: str = "GENERIC"
     app_type: str = "APP_TYPE_INTRANET"
     default_launch_url: str
+    iam_principals: list[str] = pydantic.Field(default_factory=list)
 
 
 class AppEnrichmentMetadata(pydantic.BaseModel):
@@ -62,3 +64,34 @@ class CatalogResponse(pydantic.BaseModel):
     total: int
     categories: list[str]
     departments: list[str]
+    groups: list[str] = pydantic.Field(default_factory=list)
+
+
+class SuggestedUser(pydantic.BaseModel):
+    """Represents a quick-select Workspace user account for sign-in."""
+
+    email: str
+    label: str
+    description: str
+
+
+class AuthConfigResponse(pydantic.BaseModel):
+    """Represents the response payload for GET /api/v1/auth/config."""
+
+    google_client_id: str = ""
+    suggested_users: list[SuggestedUser] = pydantic.Field(default_factory=list)
+
+
+class LoginRequest(pydantic.BaseModel):
+    """Represents the request payload for POST /api/v1/auth/login."""
+
+    email: str | None = None
+    id_token: str | None = None
+    role: str | None = None
+
+
+class LoginResponse(pydantic.BaseModel):
+    """Represents the response payload for POST /api/v1/auth/login."""
+
+    token: str
+    user: UserContext

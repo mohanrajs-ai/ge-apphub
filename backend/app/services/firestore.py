@@ -4,12 +4,14 @@ import logging
 from collections import abc
 from typing import Any
 
+from google.api_core import retry as google_retry
 from google.cloud import firestore
 
 from app import config
 from app import models
 
 LOGGER = logging.getLogger(__name__)
+_DISABLED_FIRESTORE_PROJECTS: set[str] = set()
 
 
 def _create_default_firestore_client(project_id: str) -> firestore.Client:
@@ -42,11 +44,8 @@ def get_mock_enrichment_map() -> dict[str, models.AppEnrichmentMetadata]:
             tags=["search", "knowledge-base", "citations", "workspace"],
             icon_name="Search",
             launch_url=(
-                "https://auth.cloud.google/signin/locations/global/"
-                "workforcePools/mohan-entra-id-oidc-pool/providers/"
-                "entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2F"
-                "vertexaisearch.cloud.google%2Fhome%2Fcid%2F"
-                "a8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US"
+                "https://vertexaisearch.cloud.google.com/home/cid/"
+                "a8265c54-515b-413b-aaa2-828f0d65d29e"
             ),
             allowed_roles=["*"],
             featured=True,
@@ -135,6 +134,7 @@ class FirestoreMetadataService:
             client_factory: Optional factory for Firestore Client injection.
         """
         self._settings = settings
+        self._has_custom_factory = client_factory is not None
         self._client_factory = (
             client_factory or _create_default_firestore_client
         )
@@ -148,13 +148,28 @@ class FirestoreMetadataService:
         if self._settings.use_mock_data:
             return get_mock_enrichment_map()
 
+        project_id = self._settings.gcp_project_id
+        if (
+            not self._has_custom_factory
+            and project_id in _DISABLED_FIRESTORE_PROJECTS
+        ):
+            return {}
+
         try:
-            client = self._client_factory(self._settings.gcp_project_id)
+            client = self._client_factory(project_id)
             collection_ref = client.collection(
                 self._settings.firestore_collection
             )
+            stream_iter = (
+                collection_ref.stream()
+                if self._has_custom_factory
+                else collection_ref.stream(
+                    retry=google_retry.Retry(deadline=1.5),
+                    timeout=2.0,
+                )
+            )
             enrichment_map: dict[str, models.AppEnrichmentMetadata] = {}
-            for doc in collection_ref.stream():
+            for doc in stream_iter:
                 raw = doc.to_dict() or {}
                 engine_id = str(raw.get("engine_id") or doc.id)
                 enrichment_map[engine_id] = models.AppEnrichmentMetadata(
@@ -173,8 +188,10 @@ class FirestoreMetadataService:
                 )
             return enrichment_map
         except Exception as exc:  # pylint: disable=broad-except
+            if not self._has_custom_factory:
+                _DISABLED_FIRESTORE_PROJECTS.add(project_id)
             LOGGER.warning(
-                "Firestore metadata lookup failed (%s); using mock metadata.",
+                "Firestore metadata lookup failed (%s); using defaults.",
                 exc,
             )
-            return get_mock_enrichment_map()
+            return {}

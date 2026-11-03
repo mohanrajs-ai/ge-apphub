@@ -8,14 +8,16 @@ import pydantic
 class Settings(pydantic.BaseModel):
     """Application settings resolved from environment variables."""
 
-    gcp_project_id: str = "demo-gcp-project"
+    gcp_project_id: str = "mohandemo"
     gcp_location: str = "global"
     firestore_collection: str = "ge_app_catalog"
-    use_mock_data: bool = True
+    use_mock_data: bool = False
     admin_users: list[str] = pydantic.Field(default_factory=list)
+    google_client_id: str = ""
+    session_secret: str = "ge-apphub-session-secret-key"
 
 
-def _parse_bool(value: str | None, default: bool = True) -> bool:
+def _parse_bool(value: str | None, default: bool = False) -> bool:
     """Parses a boolean environment variable string.
 
     Args:
@@ -51,13 +53,17 @@ def get_settings() -> Settings:
         Configured Settings instance.
     """
     return Settings(
-        gcp_project_id=os.environ.get("GCP_PROJECT_ID", "demo-gcp-project"),
+        gcp_project_id=os.environ.get("GCP_PROJECT_ID", "mohandemo"),
         gcp_location=os.environ.get("GCP_LOCATION", "global"),
         firestore_collection=os.environ.get(
             "FIRESTORE_COLLECTION", "ge_app_catalog"
         ),
         use_mock_data=_parse_bool(
-            os.environ.get("USE_MOCK_DATA"), default=True
+            os.environ.get("USE_MOCK_DATA"), default=False
         ),
         admin_users=_parse_csv(os.environ.get("ADMIN_USERS")),
+        google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        session_secret=os.environ.get(
+            "SESSION_SECRET", "ge-apphub-session-secret-key"
+        ),
     )

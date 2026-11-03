@@ -42,6 +42,10 @@ def list_apps(
         default=None,
         description="Filter by capability tag",
     ),
+    group: str | None = fastapi.Query(
+        default=None,
+        description="Filter by Cloud Identity group email",
+    ),
     user: models.UserContext = fastapi.Depends(auth.resolve_current_user),
     catalog_service: catalog.CatalogService = fastapi.Depends(
         get_catalog_service
@@ -49,7 +53,9 @@ def list_apps(
 ) -> models.CatalogResponse:
     """Returns the role-filtered, searchable list of GE applications."""
     all_visible = catalog_service.list_visible_applications(
-        user_roles=user.roles
+        user_roles=user.roles,
+        user_email=user.email,
+        user_groups=user.groups or None,
     )
     filtered = catalog_service.list_applications(
         user_roles=user.roles,
@@ -57,12 +63,21 @@ def list_apps(
         category=category,
         department=department,
         tag=tag,
+        group=group,
+        user_email=user.email,
+        user_groups=user.groups or None,
     )
     categories = sorted({item.category for item in all_visible})
     departments = sorted({item.department for item in all_visible})
+    groups: set[str] = set(user.groups)
+    for item in all_visible:
+        for role in item.allowed_roles:
+            if role.startswith("group:"):
+                groups.add(role.split(":", 1)[1].strip().lower())
     return models.CatalogResponse(
         items=filtered,
         total=len(filtered),
         categories=categories,
         departments=departments,
+        groups=sorted(groups),
     )

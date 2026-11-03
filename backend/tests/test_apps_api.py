@@ -61,3 +61,10 @@ def test_list_apps_endpoint_search_and_facet_filters(monkeypatch) -> None:
     items = res.json()["items"]
     assert len(items) == 1
     assert items[0]["engine_id"] == "ge-customer-support-copilot"
+
+    grp_res = client.get(
+        "/api/v1/apps",
+        params={"group": "nonexistent-group@mohanrajs.altostrat.com"},
+    )
+    assert grp_res.status_code == 200
+    assert grp_res.json()["items"] == []

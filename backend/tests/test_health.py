@@ -14,9 +14,10 @@ def test_default_settings(monkeypatch) -> None:
     monkeypatch.delenv("USE_MOCK_DATA", raising=False)
 
     settings = config.get_settings()
+    assert settings.gcp_project_id == "mohandemo"
     assert settings.gcp_location == "global"
     assert settings.firestore_collection == "ge_app_catalog"
-    assert settings.use_mock_data is True
+    assert settings.use_mock_data is False
 
 
 def test_custom_settings_from_env(monkeypatch) -> None:

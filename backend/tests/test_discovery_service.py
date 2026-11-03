@@ -69,7 +69,7 @@ def test_list_engines_live_mode_parses_sdk_response() -> None:
 
 
 def test_list_engines_live_mode_graceful_fallback_on_error() -> None:
-    """Verifies live mode falls back to mock engines if SDK raises an error."""
+    """Verifies live mode returns an empty list if SDK raises an error."""
     settings = config.Settings(
         gcp_project_id="prod-project",
         gcp_location="us",
@@ -85,7 +85,91 @@ def test_list_engines_live_mode_graceful_fallback_on_error() -> None:
     )
     engines = service.list_engines()
 
-    assert len(engines) >= 5
+    assert engines == []
+
+
+def test_resolve_widget_launch_url_workforce_and_direct(monkeypatch) -> None:
+    """Verifies _resolve_widget_launch_url builds OIDC or direct web app URL."""
+    monkeypatch.setattr(
+        discovery.google.auth,
+        "default",
+        lambda: (mock.MagicMock(), "mohandemo"),
+    )
+
+    class FakeResponse:
+        def __init__(
+            self, status_code: int, payload: dict[str, object]
+        ) -> None:
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class FakeSession:
+        def __init__(self, _creds: object) -> None:
+            pass
+
+        def get(self, url: str, timeout: float = 5.0) -> FakeResponse:
+            del timeout
+            if url.endswith("/aclConfig"):
+                if "gsuite-project" in url:
+                    return FakeResponse(
+                        200, {"idpConfig": {"idpType": "GSUITE"}}
+                    )
+                return FakeResponse(
+                    200, {"idpConfig": {"idpType": "THIRD_PARTY"}}
+                )
+            if "workforce-engine" in url:
+                return FakeResponse(
+                    200,
+                    {
+                        "configId": "cid-123",
+                        "accessSettings": {
+                            "workforceIdentityPoolProvider": (
+                                "locations/global/workforcePools/pool-1/"
+                                "providers/prov-1"
+                            )
+                        },
+                    },
+                )
+            if "direct-engine" in url:
+                return FakeResponse(200, {"configId": "cid-456"})
+            return FakeResponse(404, {})
+
+    monkeypatch.setattr(
+        discovery.google_requests,
+        "AuthorizedSession",
+        FakeSession,
+    )
+
+    wf_url = discovery._resolve_widget_launch_url(
+        "mohandemo", "global", "workforce-engine"
+    )
+    assert wf_url == (
+        "https://auth.cloud.google/signin/locations/global/workforcePools/"
+        "pool-1/providers/prov-1?continueUrl=https%3A%2F%2F"
+        "vertexaisearch.cloud.google%2Fhome%2Fcid%2Fcid-123&hl=en_US"
+    )
+
+    gsuite_url = discovery._resolve_widget_launch_url(
+        "gsuite-project", "global", "workforce-engine"
+    )
+    assert (
+        gsuite_url == "https://vertexaisearch.cloud.google.com/home/cid/cid-123"
+    )
+
+    direct_url = discovery._resolve_widget_launch_url(
+        "mohandemo", "global", "direct-engine"
+    )
+    assert (
+        direct_url == "https://vertexaisearch.cloud.google.com/home/cid/cid-456"
+    )
+
+    fallback_url = discovery._resolve_widget_launch_url(
+        "mohandemo", "us", "missing-engine"
+    )
+    assert "console.cloud.google.com" in fallback_url
 
 
 def test_create_default_sdk_client_regional_endpoint(monkeypatch) -> None:
@@ -109,5 +193,82 @@ def test_create_default_sdk_client_regional_endpoint(monkeypatch) -> None:
     client_opts = recorded_kwargs["client_options"]
     assert getattr(client_opts, "api_endpoint", None) == (
         "us-discoveryengine.googleapis.com"
+    )
+
+
+def test_resolve_engine_iam_and_cloud_identity_membership(monkeypatch) -> None:
+    """Verifies engine IAM policy extraction and Cloud Identity group check."""
+    monkeypatch.setattr(
+        discovery.google.auth,
+        "default",
+        lambda **_kwargs: (mock.MagicMock(), "mohandemo"),
+    )
+
+    class FakeResponse:
+        def __init__(
+            self, status_code: int, payload: dict[str, object]
+        ) -> None:
+            self.status_code = status_code
+            self._payload = payload
+
+        def json(self) -> dict[str, object]:
+            return self._payload
+
+    class FakeSession:
+        def __init__(self, _creds: object) -> None:
+            self.headers: dict[str, str] = {}
+
+        def get(self, url: str, timeout: float = 5.0) -> FakeResponse:
+            del timeout
+            if ":getIamPolicy" in url:
+                return FakeResponse(
+                    200,
+                    {
+                        "bindings": [
+                            {
+                                "role": "roles/discoveryengine.agentspaceUser",
+                                "members": [
+                                    "group:hr-app-01-users@mohanrajs.altostrat.com"
+                                ],
+                            }
+                        ]
+                    },
+                )
+            if "groups:lookup" in url:
+                if "hr-app-01-users" in url:
+                    return FakeResponse(200, {"name": "groups/hr123"})
+                return FakeResponse(404, {})
+            if "checkTransitiveMembership" in url:
+                if "mohanraj%40" in url and "groups/hr123" in url:
+                    return FakeResponse(200, {"hasMembership": True})
+                return FakeResponse(200, {"hasMembership": False})
+            return FakeResponse(404, {})
+
+    monkeypatch.setattr(
+        discovery.google_requests,
+        "AuthorizedSession",
+        FakeSession,
+    )
+
+    principals = discovery._resolve_engine_iam_principals(
+        "mohandemo", "global", "hr-app-01"
+    )
+    assert principals == ["group:hr-app-01-users@mohanrajs.altostrat.com"]
+
+    assert (
+        discovery.check_cloud_identity_group_membership(
+            "mohanraj@mohanrajs.altostrat.com",
+            "hr-app-01-users@mohanrajs.altostrat.com",
+            "mohandemo",
+        )
+        is True
+    )
+    assert (
+        discovery.check_cloud_identity_group_membership(
+            "admin@mohanrajs.altostrat.com",
+            "hr-app-01-users@mohanrajs.altostrat.com",
+            "mohandemo",
+        )
+        is False
     )
 
