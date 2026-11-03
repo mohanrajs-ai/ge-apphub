@@ -53,3 +53,10 @@
   - [x] Update backend catalog metadata (`firestore.py`) and tests (`test_catalog_service.py`) to include the Workforce Identity OIDC Vertex AI Search URL (`https://auth.cloud.google/signin/locations/global/workforcePools/mohan-entra-id-oidc-pool/providers/entra-id-oidc-pool-provider?continueUrl=https%3A%2F%2Fvertexaisearch.cloud.google%2Fhome%2Fcid%2Fa8265c54-515b-413b-aaa2-828f0d65d29e&hl=en_US`)
   - [x] Implement [`launchAppPopup()`](file:///Users/mohanrajs/aops/geapphub/frontend/src/components/AppCard.tsx#L49-L77) in `AppCard.tsx` to open the application in a centered standalone popup window (`popup=yes,width=1280,height=820`) over AppHub so `X-Frame-Options: SAMEORIGIN` and `SameSite=strict` OIDC cookies succeed
   - [x] Rebuild production frontend bundle (`npm run build`) and verify backend and frontend test suites pass with >80% coverage
+
+## Phase 6: Google Identity Launch Resolution & Cloud Identity Group Access Filtering
+- [x] Task: Resolve Google Identity (`GSUITE`) vs Workforce Identity (`THIRD_PARTY`) launch URLs and filter applications by Cloud Identity group membership
+  - [x] Check location `aclConfig` (`idpType`) in `discovery.py` and resolve Google Identity apps to `https://vertexaisearch.cloud.google.com/home/cid/<configId>`
+  - [x] Query per-engine IAM policies (`engines:getIamPolicy`) and Cloud Identity transitive group memberships (`groups:lookup` + `memberships:checkTransitiveMembership`) in `discovery.py`
+  - [x] Filter visible catalog applications in `catalog.py` so users only see applications their Cloud Identity groups or roles are authorized to access
+  - [x] Support active ADC user identity and user preview switching in `auth.py` and `Header.tsx`, rebuild `frontend/dist`, and verify backend and frontend test suites pass with >80% coverage

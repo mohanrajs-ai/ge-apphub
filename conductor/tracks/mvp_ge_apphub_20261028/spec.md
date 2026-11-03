@@ -14,10 +14,11 @@ This track delivers the Minimum Viable Product (MVP) for **Gemini Enterprise App
   - Merge enrichment fields onto discovered engines: `description` (outcome-oriented summary), `category` (e.g., *Productivity*, *Data & Analytics*, *Customer Support*, *Engineering*), `department`, `tags` (list of strings), `icon_url` / icon identifier, `launch_url` override, and `allowed_roles` / visibility rules.
 - **Local Mock / Fallback Mode:**
   - When `USE_MOCK_DATA=true` or when GCP credentials are not configured in local development, serve a realistic curated dataset of Gemini Enterprise applications and Firestore enrichments so development and automated testing run deterministically without live cloud dependencies.
-- **Identity & Role-Based Visibility:**
-  - Inspect Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`) or Bearer tokens in production.
-  - In local development mode, support a `X-Dev-User-Role` / `X-Dev-User-Email` header or query override so developers and testers can preview role-based catalog filtering.
-  - Filter the returned application list so users only see applications matching their assigned role(s) or marked as organization-wide (`public` / `*`).
+- **Identity, Cloud Identity Group & Role-Based Visibility:**
+  - Inspect Google Cloud IAP headers (`X-Goog-Authenticated-User-Email`, `X-Goog-Authenticated-User-Id`), active Google Cloud ADC user identity in local live mode, or local development override headers (`X-Dev-User-Role` / `X-Dev-User-Email`).
+  - Query each engine's IAM policy (`engines:getIamPolicy`) and verify user group membership via the Google Cloud Identity Groups API (`groups:lookup` and `memberships:checkTransitiveMembership`).
+  - Filter the returned application list so users only see applications that their Cloud Identity groups, user principal, or assigned roles have access to.
+  - Resolve Google Identity (`GSUITE` via `aclConfig`) launch URLs to `https://vertexaisearch.cloud.google.com/home/cid/<configId>` and Workforce Identity (`THIRD_PARTY`) launch URLs to `https://auth.cloud.google/signin/<provider>?continueUrl=...`.
 - **REST Endpoints:**
   - `GET /api/v1/health`: Health and readiness check including configuration mode (`live` vs `mock`).
   - `GET /api/v1/me`: Returns the current resolved user identity and active roles.

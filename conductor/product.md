@@ -14,9 +14,9 @@
 - **Dynamic Application Discovery & Enrichment:**
   - Automated discovery of Gemini Enterprise applications via Google Cloud / Gemini Enterprise (Discovery Engine) APIs.
   - Enrichment with structured configuration metadata (such as business category, owner, tags, custom icons, and launch endpoints).
-- **Enterprise Authentication & Role-Based Visibility:**
-  - Integrated authentication via Google Cloud IAM / Enterprise SSO (OAuth 2.0 / Identity-Aware Proxy / Workforce Identity).
-  - Role-aware catalog visibility ensuring users discover and launch applications aligned with their organization permissions.
+- **Enterprise Authentication & Group/Role-Based Visibility:**
+  - Integrated authentication via Google Cloud IAM / Enterprise SSO (Google Identity `GSUITE` on `vertexaisearch.cloud.google.com`, Cloud IAP, or Workforce Identity Federation on `vertexaisearch.cloud.google`).
+  - Dynamic Cloud Identity group & IAM policy evaluation (`engines:getIamPolicy` + Cloud Identity `groups:lookup` and `memberships:checkTransitiveMembership`) so users only discover and launch Gemini Enterprise applications that their Cloud Identity groups or roles have access to.
 - **Seamless Application Launch (Dedicated Popup App Window):**
   - Clicking **Launch App** opens the target Gemini Enterprise application URL (including Workforce Identity Federation / OIDC sign-in continuation URLs for Vertex AI Search / Gemini Enterprise web apps) in a centered, standalone popup application window (`window.open`) floating over AppHub—preserving full top-level OIDC compatibility (`X-Frame-Options: SAMEORIGIN` and `SameSite=strict` cookies) without leaving the portal tab.
 
