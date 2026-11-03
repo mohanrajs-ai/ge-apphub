@@ -4,26 +4,80 @@
 
 import {
   AppsQueryParams,
+  AuthConfigResponse,
   CatalogResponse,
+  LoginResponse,
   UserContext,
 } from '../types/catalog';
 
-function buildHeaders(devRole?: string): Record<string, string> {
+function buildHeaders(
+  devRole?: string,
+  authToken?: string,
+): Record<string, string> {
   const headers: Record<string, string> = {
     Accept: 'application/json',
   };
   if (devRole) {
     headers['X-Dev-User-Role'] = devRole;
   }
+  if (authToken) {
+    headers.Authorization = `Bearer ${authToken}`;
+  }
   return headers;
+}
+
+/**
+ * Fetches authentication configuration and suggested Workspace accounts.
+ */
+export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
+  const response = await fetch('/api/v1/auth/config', {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch auth config: HTTP ${response.status}`);
+  }
+  const data: AuthConfigResponse = await response.json();
+  return data;
+}
+
+/**
+ * Signs in a user with their Google Workspace email address.
+ */
+export async function loginWithEmail(email: string): Promise<LoginResponse> {
+  const response = await fetch('/api/v1/auth/login', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ email }),
+  });
+  if (!response.ok) {
+    throw new Error(`Authentication failed: HTTP ${response.status}`);
+  }
+  const data: LoginResponse = await response.json();
+  return data;
+}
+
+/**
+ * Logs out the current user session.
+ */
+export async function logoutUser(): Promise<void> {
+  await fetch('/api/v1/auth/logout', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
 }
 
 /**
  * Fetches the resolved user identity and roles from /api/v1/me.
  */
-export async function fetchCurrentUser(devRole?: string): Promise<UserContext> {
+export async function fetchCurrentUser(
+  devRole?: string,
+  authToken?: string,
+): Promise<UserContext> {
   const response = await fetch('/api/v1/me', {
-    headers: buildHeaders(devRole),
+    headers: buildHeaders(devRole, authToken),
   });
   if (!response.ok) {
     throw new Error(`Failed to fetch user profile: HTTP ${response.status}`);
@@ -33,7 +87,7 @@ export async function fetchCurrentUser(devRole?: string): Promise<UserContext> {
 }
 
 /**
- * Fetches the role-filtered application catalog from /api/v1/apps.
+ * Fetches the role- and group-filtered application catalog from /api/v1/apps.
  */
 export async function fetchApps(
   params: AppsQueryParams = {},
@@ -51,11 +105,14 @@ export async function fetchApps(
   if (params.tag) {
     searchParams.set('tag', params.tag);
   }
+  if (params.group) {
+    searchParams.set('group', params.group);
+  }
   const queryString = searchParams.toString();
   const url = queryString ? `/api/v1/apps?${queryString}` : '/api/v1/apps';
 
   const response = await fetch(url, {
-    headers: buildHeaders(params.devRole),
+    headers: buildHeaders(params.devRole, params.authToken),
   });
   if (!response.ok) {
     throw new Error(

@@ -48,6 +48,85 @@ const SAMPLE_APPS: CatalogApplication[] = [
 describe('Gemini Enterprise AppHub Catalog View', () => {
   beforeEach(() => {
     vi.restoreAllMocks();
+    window.sessionStorage.setItem('ge_auth_token', 'test-session-token');
+  });
+
+  it('shows Sign-In screen when unauthenticated and logs in as a Workspace user to filter by group', async () => {
+    window.sessionStorage.removeItem('ge_auth_token');
+    vi.spyOn(apiClient, 'fetchAuthConfig').mockResolvedValue({
+      google_client_id: '',
+      suggested_users: [
+        {
+          email: 'mohanraj@mohanrajs.altostrat.com',
+          label: 'Mohanraj Shanmugam',
+          description: 'Member of HR & Ops Cloud Identity groups (2 GE apps)',
+        },
+      ],
+    });
+    vi.spyOn(apiClient, 'loginWithEmail').mockResolvedValue({
+      token: 'mohan-token',
+      user: {
+        email: 'mohanraj@mohanrajs.altostrat.com',
+        user_id: 'mohanraj@mohanrajs.altostrat.com',
+        roles: ['employee'],
+        groups: ['hr-app-01-users@mohanrajs.altostrat.com'],
+        auth_source: 'session_token',
+      },
+    });
+    vi.spyOn(apiClient, 'fetchCurrentUser').mockResolvedValue({
+      email: 'mohanraj@mohanrajs.altostrat.com',
+      user_id: 'mohanraj@mohanrajs.altostrat.com',
+      roles: ['employee'],
+      groups: ['hr-app-01-users@mohanrajs.altostrat.com'],
+      auth_source: 'session_token',
+    });
+    vi.spyOn(apiClient, 'fetchApps').mockResolvedValue({
+      items: [
+        {
+          ...SAMPLE_APPS[0],
+          engine_id: 'hr-app-01',
+          display_name: 'Gemini HR App',
+          allowed_roles: ['group:hr-app-01-users@mohanrajs.altostrat.com'],
+        },
+      ],
+      total: 1,
+      categories: ['Productivity'],
+      departments: ['General'],
+      groups: ['hr-app-01-users@mohanrajs.altostrat.com'],
+    });
+    vi.spyOn(apiClient, 'logoutUser').mockResolvedValue();
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Sign in to Tech-M Gemini AI Hub/i),
+      ).toBeInTheDocument();
+    });
+
+    const quickUserBtn = screen.getByRole('button', {
+      name: /Mohanraj Shanmugam/i,
+    });
+    fireEvent.click(quickUserBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Gemini HR App')).toBeInTheDocument();
+    });
+
+    const grpFilterBtn = screen.getByRole('button', {
+      name: /Filter by group hr-app-01-users@mohanrajs.altostrat.com/i,
+    });
+    fireEvent.click(grpFilterBtn);
+    expect(screen.getByText('Gemini HR App')).toBeInTheDocument();
+
+    const signOutBtn = screen.getByRole('button', { name: /sign out/i });
+    fireEvent.click(signOutBtn);
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Sign in to Tech-M Gemini AI Hub/i),
+      ).toBeInTheDocument();
+    });
   });
 
   it('loads application cards and opens a centered popup window on Launch App click', async () => {

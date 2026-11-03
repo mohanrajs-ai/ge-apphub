@@ -4,7 +4,13 @@
 
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { fetchApps, fetchCurrentUser } from '../api/client';
+import {
+  fetchApps,
+  fetchAuthConfig,
+  fetchCurrentUser,
+  loginWithEmail,
+  logoutUser,
+} from '../api/client';
 import { Header } from '../components/Header';
 import { ThemeProvider } from '../context/ThemeContext';
 import { UserContext } from '../types/catalog';
@@ -17,7 +23,7 @@ describe('Header & ThemeProvider', () => {
     auth_source: 'mock_default',
   };
 
-  it('renders Gemini Enterprise AppHub branding and current user email', () => {
+  it('renders Tech-M Gemini AI Hub branding, logo, and current user email', () => {
     const onRoleChange = vi.fn();
     render(
       <ThemeProvider>
@@ -29,9 +35,13 @@ describe('Header & ThemeProvider', () => {
       </ThemeProvider>,
     );
 
-    expect(
-      screen.getByText(/Gemini Enterprise AppHub/i),
-    ).toBeInTheDocument();
+    const logoImg = screen.getByRole('img', { name: /Tech Mahindra Logo/i });
+    expect(logoImg).toBeInTheDocument();
+    expect(logoImg).toHaveAttribute(
+      'src',
+      'https://www.mahindra.com/sites/default/files/social-thumbnail/TM_Logo_Color_Pos_RGB.webp',
+    );
+    expect(screen.getByText(/Tech-M Gemini AI Hub/i)).toBeInTheDocument();
     expect(
       screen.getByText('developer@enterprise.example.com'),
     ).toBeInTheDocument();
@@ -77,6 +87,28 @@ describe('Header & ThemeProvider', () => {
     fireEvent.change(roleSelect, { target: { value: 'admin' } });
     expect(onRoleChange).toHaveBeenCalledWith('admin');
   });
+
+  it('renders Sign Out button and triggers onSignOut callback', () => {
+    const onRoleChange = vi.fn();
+    const onSignOut = vi.fn();
+    render(
+      <ThemeProvider>
+        <Header
+          user={{
+            ...sampleUser,
+            groups: ['hr-app-01-users@mohanrajs.altostrat.com'],
+          }}
+          activeDevRole="employee"
+          onDevRoleChange={onRoleChange}
+          onSignOut={onSignOut}
+        />
+      </ThemeProvider>,
+    );
+
+    const signOutBtn = screen.getByRole('button', { name: /sign out/i });
+    fireEvent.click(signOutBtn);
+    expect(onSignOut).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('API Client', () => {
@@ -109,6 +141,46 @@ describe('API Client', () => {
     const catalog = await fetchApps({ devRole: 'admin', q: 'search' });
     expect(catalog.total).toBe(0);
     expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          google_client_id: '',
+          suggested_users: [
+            {
+              email: 'mohanraj@mohanrajs.altostrat.com',
+              label: 'Mohanraj',
+              description: 'HR & Ops',
+            },
+          ],
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          token: 'signed-token-123',
+          user: {
+            email: 'mohanraj@mohanrajs.altostrat.com',
+            user_id: 'mohanraj@mohanrajs.altostrat.com',
+            roles: ['employee'],
+            groups: ['hr-app-01-users@mohanrajs.altostrat.com'],
+            auth_source: 'session_token',
+          },
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'logged_out' }),
+      });
+
+    const authCfg = await fetchAuthConfig();
+    expect(authCfg.suggested_users).toHaveLength(1);
+
+    const loginRes = await loginWithEmail('mohanraj@mohanrajs.altostrat.com');
+    expect(loginRes.token).toBe('signed-token-123');
+
+    await logoutUser();
 
     vi.unstubAllGlobals();
   });

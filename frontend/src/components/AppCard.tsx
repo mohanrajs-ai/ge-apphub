@@ -109,6 +109,20 @@ export function AppCard({
           Department: {app.department}
         </p>
 
+        {app.allowed_roles
+          .filter((r) => r.startsWith('group:'))
+          .map((grpRole) => {
+            const grpEmail = grpRole.replace(/^group:/, '');
+            return (
+              <p
+                key={grpEmail}
+                className="mt-1 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-0.5 text-[11px] font-medium text-indigo-700 dark:bg-indigo-950/60 dark:text-indigo-300"
+              >
+                Group: {grpEmail}
+              </p>
+            );
+          })}
+
         <p className="mt-2.5 line-clamp-3 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
           {app.description}
         </p>

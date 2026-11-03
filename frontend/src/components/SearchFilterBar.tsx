@@ -3,45 +3,53 @@
  */
 
 import React from 'react';
-import { Building2, Filter, Search, X } from 'lucide-react';
+import { Building2, Filter, Search, Users, X } from 'lucide-react';
 
 export interface SearchFilterBarProps {
   searchQuery: string;
   selectedCategory: string;
   selectedDepartment: string;
   selectedTag: string;
+  selectedGroup?: string;
   categories: string[];
   departments: string[];
+  groups?: string[];
   totalCount: number;
   filteredCount: number;
   onSearchChange: (value: string) => void;
   onCategoryChange: (category: string) => void;
   onDepartmentChange: (department: string) => void;
+  onGroupChange?: (group: string) => void;
   onClearFilters: () => void;
 }
 
 /**
- * Renders real-time search input, category chips, and department selector.
+ * Renders real-time search input, category chips, Cloud Identity group chips,
+ * and department selector.
  */
 export function SearchFilterBar({
   searchQuery,
   selectedCategory,
   selectedDepartment,
   selectedTag,
+  selectedGroup = '',
   categories,
   departments,
+  groups = [],
   totalCount,
   filteredCount,
   onSearchChange,
   onCategoryChange,
   onDepartmentChange,
+  onGroupChange,
   onClearFilters,
 }: SearchFilterBarProps): React.ReactElement {
   const hasActiveFilters = Boolean(
     searchQuery.trim() ||
       selectedCategory ||
       selectedDepartment ||
-      selectedTag,
+      selectedTag ||
+      selectedGroup,
   );
 
   return (
@@ -111,6 +119,44 @@ export function SearchFilterBar({
           )}
         </div>
       </div>
+
+      {groups.length > 0 && onGroupChange && (
+        <div className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3.5 dark:border-slate-800">
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-500 dark:text-slate-400">
+            <Users className="h-3.5 w-3.5" aria-hidden="true" />
+            Access Group:
+          </span>
+          <button
+            type="button"
+            onClick={() => onGroupChange('')}
+            className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+              selectedGroup === ''
+                ? 'bg-indigo-600 text-white shadow-sm'
+                : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+            }`}
+          >
+            All My Groups
+          </button>
+          {groups.map((grp) => {
+            const isActive = selectedGroup === grp;
+            return (
+              <button
+                key={grp}
+                type="button"
+                aria-label={`Filter by group ${grp}`}
+                onClick={() => onGroupChange(isActive ? '' : grp)}
+                className={`rounded-full px-3 py-1 text-xs font-medium transition ${
+                  isActive
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'
+                }`}
+              >
+                {grp}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3.5 dark:border-slate-800">
         <div className="flex flex-wrap items-center gap-2">
