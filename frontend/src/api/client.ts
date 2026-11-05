@@ -7,6 +7,8 @@ import {
   AuthConfigResponse,
   CatalogResponse,
   LoginResponse,
+  SyncRunSummary,
+  SyncStatusResponse,
   UserContext,
 } from '../types/catalog';
 
@@ -120,5 +122,34 @@ export async function fetchApps(
     );
   }
   const data: CatalogResponse = await response.json();
+  return data;
+}
+
+/**
+ * Fetches current database sync status and entity counts from /api/v1/sync/status.
+ */
+export async function fetchSyncStatus(): Promise<SyncStatusResponse> {
+  const response = await fetch('/api/v1/sync/status', {
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch sync status: HTTP ${response.status}`);
+  }
+  const data: SyncStatusResponse = await response.json();
+  return data;
+}
+
+/**
+ * Triggers an immediate synchronization of GE applications and Cloud Identity groups.
+ */
+export async function triggerSync(): Promise<SyncRunSummary> {
+  const response = await fetch('/api/v1/sync', {
+    method: 'POST',
+    headers: { Accept: 'application/json' },
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to trigger sync: HTTP ${response.status}`);
+  }
+  const data: SyncRunSummary = await response.json();
   return data;
 }

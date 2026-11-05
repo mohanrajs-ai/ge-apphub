@@ -5,15 +5,26 @@
  */
 
 import React from 'react';
-import { LogOut, Moon, ShieldCheck, Sun, User } from 'lucide-react';
+import {
+  Database,
+  LogOut,
+  Moon,
+  RefreshCw,
+  ShieldCheck,
+  Sun,
+  User,
+} from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
-import { UserContext } from '../types/catalog';
+import { SyncStatusResponse, UserContext } from '../types/catalog';
 
 export interface HeaderProps {
   user: UserContext | null;
   activeDevRole: string;
   onDevRoleChange: (newRole: string) => void;
   onSignOut?: () => void;
+  syncStatus?: SyncStatusResponse | null;
+  syncing?: boolean;
+  onSyncNow?: () => void;
 }
 
 const AVAILABLE_DEV_ROLES = [
@@ -58,6 +69,9 @@ export function Header({
   activeDevRole,
   onDevRoleChange,
   onSignOut,
+  syncStatus,
+  syncing = false,
+  onSyncNow,
 }: HeaderProps): React.ReactElement {
   const { theme, toggleTheme } = useTheme();
   const groupCount = user?.groups?.length ?? 0;
@@ -129,6 +143,33 @@ export function Header({
                 <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 dark:bg-blue-950/70 dark:text-blue-300">
                   {groupCount} {groupCount === 1 ? 'Group' : 'Groups'}
                 </span>
+              )}
+            </div>
+          )}
+
+          {syncStatus && (
+            <div
+              className="hidden items-center gap-2 rounded-lg border border-emerald-200/80 bg-emerald-50/70 px-2.5 py-1.5 text-xs text-emerald-800 md:flex dark:border-emerald-900/60 dark:bg-emerald-950/40 dark:text-emerald-300"
+              title={`DB Sync (${syncStatus.database_dialect}) — Interval: ${syncStatus.sync_interval_seconds}s`}
+            >
+              <Database className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              <span className="font-medium">
+                {syncStatus.total_apps} Apps • {syncStatus.total_groups} Groups
+              </span>
+              {onSyncNow && (
+                <button
+                  type="button"
+                  onClick={onSyncNow}
+                  disabled={syncing}
+                  aria-label="Sync database now"
+                  className="inline-flex items-center gap-1 rounded bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white transition hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  <RefreshCw
+                    className={`h-3 w-3 ${syncing ? 'animate-spin' : ''}`}
+                    aria-hidden="true"
+                  />
+                  <span>{syncing ? 'Syncing' : 'Sync DB'}</span>
+                </button>
               )}
             </div>
           )}

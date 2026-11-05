@@ -8,8 +8,10 @@ import {
   fetchApps,
   fetchAuthConfig,
   fetchCurrentUser,
+  fetchSyncStatus,
   loginWithEmail,
   logoutUser,
+  triggerSync,
 } from './api/client';
 import { CatalogGrid } from './components/CatalogGrid';
 import { Header } from './components/Header';
@@ -19,6 +21,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import {
   CatalogApplication,
   SuggestedUser,
+  SyncStatusResponse,
   UserContext,
 } from './types/catalog';
 
@@ -91,6 +94,8 @@ export function App(): React.ReactElement {
   const [selectedDepartment, setSelectedDepartment] = useState<string>('');
   const [selectedTag, setSelectedTag] = useState<string>('');
   const [selectedGroup, setSelectedGroup] = useState<string>('');
+  const [syncStatus, setSyncStatus] = useState<SyncStatusResponse | null>(null);
+  const [syncing, setSyncing] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -116,6 +121,9 @@ export function App(): React.ReactElement {
         setCategories(catalogRes.categories);
         setDepartments(catalogRes.departments);
         setGroups(catalogRes.groups ?? userRes.groups ?? []);
+        void fetchSyncStatus()
+          .then((st) => setSyncStatus(st))
+          .catch(() => null);
       } catch (err) {
         const message =
           err instanceof Error ? err.message : 'Unexpected backend error';
@@ -169,6 +177,21 @@ export function App(): React.ReactElement {
     setActiveDevRole(newRole);
   }
 
+  async function handleSyncNow(): Promise<void> {
+    if (!authToken) {
+      return;
+    }
+    setSyncing(true);
+    try {
+      await triggerSync();
+      await loadCatalogData(activeDevRole, authToken);
+    } catch {
+      // Ignore transient sync trigger errors in header
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   const filteredApps = useMemo(
     () =>
       filterAppsClientSide(
@@ -213,6 +236,9 @@ export function App(): React.ReactElement {
             activeDevRole={activeDevRole}
             onDevRoleChange={handleRoleOrUserSwitch}
             onSignOut={handleSignOut}
+            syncStatus={syncStatus}
+            syncing={syncing}
+            onSyncNow={() => void handleSyncNow()}
           />
 
           <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">

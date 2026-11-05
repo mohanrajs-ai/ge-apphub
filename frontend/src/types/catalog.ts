@@ -58,3 +58,26 @@ export interface AppsQueryParams {
   tag?: string;
   group?: string;
 }
+
+export interface SyncRunSummary {
+  id: number;
+  trigger_source: string;
+  status: string;
+  apps_synced: number;
+  groups_synced: number;
+  memberships_synced: number;
+  error_message?: string | null;
+  started_at?: string | null;
+  completed_at?: string | null;
+}
+
+export interface SyncStatusResponse {
+  sync_enabled: boolean;
+  sync_interval_seconds: number;
+  database_dialect: string;
+  total_apps: number;
+  total_groups: number;
+  total_users: number;
+  total_memberships: number;
+  last_run?: SyncRunSummary | null;
+}

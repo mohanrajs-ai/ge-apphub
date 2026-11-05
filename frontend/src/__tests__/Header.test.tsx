@@ -8,8 +8,10 @@ import {
   fetchApps,
   fetchAuthConfig,
   fetchCurrentUser,
+  fetchSyncStatus,
   loginWithEmail,
   logoutUser,
+  triggerSync,
 } from '../api/client';
 import { Header } from '../components/Header';
 import { ThemeProvider } from '../context/ThemeContext';
@@ -109,6 +111,44 @@ describe('Header & ThemeProvider', () => {
     fireEvent.click(signOutBtn);
     expect(onSignOut).toHaveBeenCalledTimes(1);
   });
+
+  it('renders PostgreSQL sync status badge and triggers onSyncNow when Sync DB is clicked', () => {
+    const onRoleChange = vi.fn();
+    const onSyncNow = vi.fn();
+    render(
+      <ThemeProvider>
+        <Header
+          user={sampleUser}
+          activeDevRole="employee"
+          onDevRoleChange={onRoleChange}
+          syncStatus={{
+            sync_enabled: true,
+            sync_interval_seconds: 900,
+            database_dialect: 'postgresql',
+            total_apps: 7,
+            total_groups: 6,
+            total_users: 2,
+            total_memberships: 8,
+            last_run: {
+              id: 1,
+              trigger_source: 'scheduled',
+              status: 'completed',
+              apps_synced: 7,
+              groups_synced: 6,
+              memberships_synced: 8,
+            },
+          }}
+          syncing={false}
+          onSyncNow={onSyncNow}
+        />
+      </ThemeProvider>,
+    );
+
+    expect(screen.getByText(/7 Apps • 6 Groups/i)).toBeInTheDocument();
+    const syncBtn = screen.getByRole('button', { name: /sync database now/i });
+    fireEvent.click(syncBtn);
+    expect(onSyncNow).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('API Client', () => {
@@ -181,6 +221,37 @@ describe('API Client', () => {
     expect(loginRes.token).toBe('signed-token-123');
 
     await logoutUser();
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          sync_enabled: true,
+          sync_interval_seconds: 900,
+          database_dialect: 'postgresql',
+          total_apps: 7,
+          total_groups: 6,
+          total_users: 2,
+          total_memberships: 8,
+        }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          id: 2,
+          trigger_source: 'manual_api',
+          status: 'completed',
+          apps_synced: 7,
+          groups_synced: 6,
+          memberships_synced: 8,
+        }),
+      });
+
+    const syncStat = await fetchSyncStatus();
+    expect(syncStat.total_apps).toBe(7);
+
+    const syncRun = await triggerSync();
+    expect(syncRun.status).toBe('completed');
 
     vi.unstubAllGlobals();
   });
