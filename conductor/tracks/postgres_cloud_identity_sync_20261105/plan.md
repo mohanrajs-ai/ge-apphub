@@ -9,11 +9,11 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `b74ef07`
 
 ## Phase 2: Cloud Identity & Discovery Engine Scheduled Sync Engine
-- [~] Task: Implement `CatalogSyncService`, background scheduler, and `/api/v1/sync` & `/api/v1/groups` endpoints
-  - [ ] Write failing unit tests (`backend/tests/test_sync.py`) for syncing Discovery Engine apps, IAM bindings, Cloud Identity group lookups/memberships (`groups:lookup`, `memberships:list`, `checkTransitiveMembership`), and recording `sync_runs` in PostgreSQL
-  - [ ] Implement `CatalogSyncService` (`backend/app/services/sync.py`) and Cloud Identity group member listing in `backend/app/services/discovery.py`
-  - [ ] Implement `POST /api/v1/sync`, `GET /api/v1/sync/status`, and `GET /api/v1/groups` routers (`backend/app/routers/sync.py`, `backend/app/routers/groups.py`) and background periodic scheduler in `backend/app/main.py`
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Implement `CatalogSyncService`, background scheduler, and `/api/v1/sync` & `/api/v1/groups` endpoints `c14d761`
+  - [x] Write failing unit tests (`backend/tests/test_sync.py`) for syncing Discovery Engine apps, IAM bindings, Cloud Identity group lookups/memberships (`groups:lookup`, `memberships:list`, `checkTransitiveMembership`), and recording `sync_runs` in PostgreSQL
+  - [x] Implement `CatalogSyncService` (`backend/app/services/sync.py`) and Cloud Identity group member listing in `backend/app/services/discovery.py`
+  - [x] Implement `POST /api/v1/sync`, `GET /api/v1/sync/status`, and `GET /api/v1/groups` routers (`backend/app/routers/sync.py`, `backend/app/routers/groups.py`) and background periodic scheduler in `backend/app/main.py`
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
 
 ## Phase 3: Google Cloud Identity Authentication & PostgreSQL-Backed Catalog Queries
 - [ ] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL
