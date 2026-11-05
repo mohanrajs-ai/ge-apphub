@@ -1,6 +1,9 @@
 """FastAPI application entrypoint for Gemini Enterprise AppHub."""
 
+import asyncio
+import contextlib
 import pathlib
+from collections import abc
 
 import fastapi
 from fastapi import responses
@@ -9,13 +12,50 @@ from fastapi.middleware import cors
 
 from app import auth
 from app import config
+from app import database
+from app import db_models
 from app import models
 from app.routers import apps
 from app.routers import auth as auth_router
+from app.routers import groups as groups_router
+from app.routers import sync as sync_router
+from app.services import sync as sync_service
 
 DEFAULT_FRONTEND_DIST = (
     pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"
 )
+
+
+@contextlib.asynccontextmanager
+async def _app_lifespan(
+    _app: fastapi.FastAPI,
+) -> abc.AsyncIterator[None]:
+    """Initializes database schema, startup sync, and periodic scheduler."""
+    settings = config.get_settings()
+    database.init_db()
+    if settings.sync_enabled and settings.sync_on_startup:
+        with database.session_scope() as session:
+            has_apps = (
+                session.query(db_models.GEApplicationRecord).count() > 0
+            )
+            if not has_apps:
+                svc = sync_service.CatalogSyncService(settings=settings)
+                svc.run_sync(session=session, trigger_source="startup")
+
+    worker_task: asyncio.Task[None] | None = None
+    if settings.sync_enabled:
+        worker_task = asyncio.create_task(
+            sync_service.periodic_sync_worker(
+                settings.sync_interval_seconds
+            )
+        )
+    try:
+        yield
+    finally:
+        if worker_task is not None:
+            worker_task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await worker_task
 
 
 def create_app(
@@ -36,6 +76,7 @@ def create_app(
             "accessing Gemini Enterprise applications."
         ),
         version="0.1.0",
+        lifespan=_app_lifespan,
     )
 
     application.add_middleware(
@@ -71,6 +112,8 @@ def create_app(
 
     application.include_router(auth_router.router)
     application.include_router(apps.router)
+    application.include_router(groups_router.router)
+    application.include_router(sync_router.router)
 
     resolved_dist = static_dir or DEFAULT_FRONTEND_DIST
     index_html = resolved_dist / "index.html"

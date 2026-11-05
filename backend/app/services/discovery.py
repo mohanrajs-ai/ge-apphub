@@ -295,6 +295,106 @@ def check_cloud_identity_group_membership(
     return False
 
 
+def fetch_cloud_identity_group_details(
+    group_email: str,
+    project_id: str,
+    candidate_users: list[str] | None = None,
+) -> dict[str, Any]:
+    """Fetches Cloud Identity group metadata and direct/transitive members.
+
+    Args:
+        group_email: Target Cloud Identity group email.
+        project_id: Quota/billing GCP project ID.
+        candidate_users: Optional candidate user emails to verify transitively.
+
+    Returns:
+        Dictionary with group_email, group_resource_name, display_name,
+        description, and sorted list of member emails.
+    """
+    clean_group = group_email.strip().lower()
+    default_label = clean_group.split("@", 1)[0].replace("-", " ").title()
+    result: dict[str, Any] = {
+        "group_email": clean_group,
+        "group_resource_name": "",
+        "display_name": default_label,
+        "description": f"Cloud Identity access group ({clean_group})",
+        "members": [],
+    }
+    if not clean_group or "@" not in clean_group:
+        return result
+
+    members: set[str] = set()
+    try:
+        credentials, _ = google.auth.default(
+            scopes=[
+                "https://www.googleapis.com/auth/cloud-platform",
+                "https://www.googleapis.com/auth/cloud-identity.groups.readonly",
+            ]
+        )
+        session = google_requests.AuthorizedSession(credentials)
+        session.headers["x-goog-user-project"] = project_id
+        sess_id = id(google_requests.AuthorizedSession)
+        grp_key = (sess_id, clean_group)
+        if grp_key in _GROUP_NAME_CACHE:
+            group_name = _GROUP_NAME_CACHE[grp_key]
+        else:
+            encoded_group = urllib.parse.quote(clean_group, safe="")
+            lookup_url = (
+                "https://cloudidentity.googleapis.com/v1/groups:lookup"
+                f"?groupKey.id={encoded_group}"
+            )
+            lookup_resp = session.get(lookup_url, timeout=5.0)
+            group_name = (
+                lookup_resp.json().get("name")
+                if lookup_resp.status_code == 200
+                else None
+            )
+            _GROUP_NAME_CACHE[grp_key] = group_name
+
+        if group_name:
+            result["group_resource_name"] = str(group_name)
+            grp_resp = session.get(
+                f"https://cloudidentity.googleapis.com/v1/{group_name}",
+                timeout=5.0,
+            )
+            if grp_resp.status_code == 200:
+                grp_json = grp_resp.json()
+                if grp_json.get("displayName"):
+                    result["display_name"] = str(grp_json["displayName"])
+                if grp_json.get("description"):
+                    result["description"] = str(grp_json["description"])
+
+            mem_resp = session.get(
+                f"https://cloudidentity.googleapis.com/v1/{group_name}/"
+                "memberships?pageSize=200",
+                timeout=5.0,
+            )
+            if mem_resp.status_code == 200:
+                for item in mem_resp.json().get("memberships") or []:
+                    key_id = (item.get("preferredMemberKey") or {}).get("id")
+                    if key_id and "@" in str(key_id):
+                        members.add(str(key_id).strip().lower())
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.debug(
+            "Cloud Identity group details lookup failed for %s (%s).",
+            clean_group,
+            exc,
+        )
+
+    for candidate in candidate_users or []:
+        clean_user = candidate.strip().lower()
+        if clean_user and clean_user not in members:
+            if check_cloud_identity_group_membership(
+                user_email=clean_user,
+                group_email=clean_group,
+                project_id=project_id,
+            ):
+                members.add(clean_user)
+
+    result["members"] = sorted(members)
+    return result
+
+
 def _create_default_sdk_client(
     location: str,
 ) -> discoveryengine.EngineServiceClient:
@@ -378,6 +478,33 @@ def get_mock_engines(project_id: str) -> list[models.DiscoveredEngine]:
     ]
 
 
+def get_mock_group_directory() -> dict[str, dict[str, Any]]:
+    """Returns curated Cloud Identity group records for mock/demo mode."""
+    return {
+        "hr-app-01-users@mohanrajs.altostrat.com": {
+            "group_email": "hr-app-01-users@mohanrajs.altostrat.com",
+            "group_resource_name": "groups/mock-hr-01",
+            "display_name": "HR App 01 Users",
+            "description": "Cloud Identity group for HR applications",
+            "members": [
+                "mohanraj@mohanrajs.altostrat.com",
+                "developer@enterprise.example.com",
+            ],
+        },
+        "ops-app-01-users@mohanrajs.altostrat.com": {
+            "group_email": "ops-app-01-users@mohanrajs.altostrat.com",
+            "group_resource_name": "groups/mock-ops-01",
+            "display_name": "Ops App 01 Users",
+            "description": "Cloud Identity group for Operations applications",
+            "members": [
+                "mohanraj@mohanrajs.altostrat.com",
+                "admin@mohanrajs.altostrat.com",
+                "developer@enterprise.example.com",
+            ],
+        },
+    }
+
+
 class DiscoveryEngineService:
     """Fetches Gemini Enterprise applications via Discovery Engine API."""
 
@@ -455,6 +582,38 @@ class DiscoveryEngineService:
             ):
                 matched_groups.append(group_email)
         return matched_groups
+
+    def fetch_group_details_and_members(
+        self,
+        group_email: str,
+        candidate_users: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Fetches Cloud Identity group details and members for a group email.
+
+        Args:
+            group_email: Target Cloud Identity group email.
+            candidate_users: Optional candidate user emails to verify.
+
+        Returns:
+            Dictionary with group metadata and member emails.
+        """
+        clean_group = group_email.strip().lower()
+        if self._settings.use_mock_data:
+            mock_dir = get_mock_group_directory()
+            if clean_group in mock_dir:
+                return mock_dir[clean_group]
+            return {
+                "group_email": clean_group,
+                "group_resource_name": f"groups/mock-{clean_group}",
+                "display_name": clean_group.split("@", 1)[0].title(),
+                "description": f"Mock Cloud Identity group ({clean_group})",
+                "members": ["developer@enterprise.example.com"],
+            }
+        return fetch_cloud_identity_group_details(
+            group_email=clean_group,
+            project_id=self._settings.gcp_project_id,
+            candidate_users=candidate_users,
+        )
 
     def list_engines(self) -> list[models.DiscoveredEngine]:
         """Lists Gemini Enterprise engines from GCP or mock when configured.

@@ -95,3 +95,51 @@ class LoginResponse(pydantic.BaseModel):
 
     token: str
     user: UserContext
+
+
+class SyncRunSummary(pydantic.BaseModel):
+    """Represents a completed or failed synchronization audit record."""
+
+    id: int
+    trigger_source: str
+    status: str
+    apps_synced: int
+    groups_synced: int
+    memberships_synced: int
+    error_message: str | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+
+
+class SyncStatusResponse(pydantic.BaseModel):
+    """Represents the response payload for GET /api/v1/sync/status."""
+
+    sync_enabled: bool
+    sync_interval_seconds: int
+    database_dialect: str
+    total_apps: int
+    total_groups: int
+    total_users: int
+    total_memberships: int
+    last_run: SyncRunSummary | None = None
+
+
+class CloudIdentityGroupInfo(pydantic.BaseModel):
+    """Represents a synced Cloud Identity group stored in the database."""
+
+    group_email: str
+    group_resource_name: str
+    display_name: str
+    description: str = ""
+    member_count: int = 0
+    members: list[str] = pydantic.Field(default_factory=list)
+    app_engine_ids: list[str] = pydantic.Field(default_factory=list)
+    is_member: bool = False
+    last_synced_at: str | None = None
+
+
+class GroupListResponse(pydantic.BaseModel):
+    """Represents the response payload for GET /api/v1/groups."""
+
+    items: list[CloudIdentityGroupInfo]
+    total: int
