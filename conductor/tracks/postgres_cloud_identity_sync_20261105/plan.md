@@ -23,7 +23,7 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `f4f4f98`
 
 ## Phase 4: Frontend Sync Status Controls & Local End-to-End Verification
-- [~] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack
-  - [ ] Write failing frontend unit tests (`frontend/src/App.test.tsx`) for displaying PostgreSQL sync status and triggering on-demand sync
-  - [ ] Update frontend API client and `Header.tsx` to display synced database status and a "Sync Now" control, and verify live local PostgreSQL database population and queries
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack `005dc30`
+  - [x] Write failing frontend unit tests (`frontend/src/App.test.tsx`) for displaying PostgreSQL sync status and triggering on-demand sync
+  - [x] Update frontend API client and `Header.tsx` to display synced database status and a "Sync Now" control, and verify live local PostgreSQL database population and queries
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
