@@ -12,5 +12,5 @@
 
 ---
 
-- [ ] **Track: PostgreSQL Persistence, Cloud Identity Auth & Scheduled Sync (Local Setup)**
+- [~] **Track: PostgreSQL Persistence, Cloud Identity Auth & Scheduled Sync (Local Setup)**
   *Link: [./tracks/postgres_cloud_identity_sync_20261105/index.md](./tracks/postgres_cloud_identity_sync_20261105/index.md)*
