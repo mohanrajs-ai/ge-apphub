@@ -9,3 +9,8 @@
 
 - [x] **Track: User Authentication & Cloud Identity Group-Based Catalog Filtering**
   *Link: [./tracks/user_auth_group_filtering_20261103/index.md](./tracks/user_auth_group_filtering_20261103/index.md)*
+
+---
+
+- [ ] **Track: PostgreSQL Persistence, Cloud Identity Auth & Scheduled Sync (Local Setup)**
+  *Link: [./tracks/postgres_cloud_identity_sync_20261105/index.md](./tracks/postgres_cloud_identity_sync_20261105/index.md)*
