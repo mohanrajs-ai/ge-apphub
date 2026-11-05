@@ -1,15 +1,15 @@
 # Implementation Plan: PostgreSQL Persistence, Cloud Identity Auth & Scheduled Sync (`postgres_cloud_identity_sync_20261105`)
 
-## Phase 1: Local PostgreSQL Provisioning & SQLAlchemy ORM Schema
+## Phase 1: Local PostgreSQL Provisioning & SQLAlchemy ORM Schema [checkpoint: b74ef07]
 - [x] Task: Update `conductor/tech-stack.md`, provision local PostgreSQL database, and implement SQLAlchemy ORM models `b74ef07`
   - [x] Document PostgreSQL, SQLAlchemy 2.0 (`psycopg`), and scheduled sync worker in `conductor/tech-stack.md` and create `docker-compose.yml` for local PostgreSQL
   - [x] Install and start local PostgreSQL service (`postgresql@16` via Homebrew), create the `geapphub` database, and install Python dependencies (`sqlalchemy`, `psycopg[binary]`)
   - [x] Write failing unit tests (`backend/tests/test_database.py`) for database session management and ORM models (`UserRecord`, `CloudIdentityGroupRecord`, `UserGroupMembershipRecord`, `GEApplicationRecord`, `AppGroupBindingRecord`, `SyncRunRecord`)
   - [x] Implement `backend/app/database.py` and `backend/app/db_models.py` with automatic schema initialization and update `backend/app/config.py` with PostgreSQL and sync schedule settings
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `b74ef07`
 
 ## Phase 2: Cloud Identity & Discovery Engine Scheduled Sync Engine
-- [ ] Task: Implement `CatalogSyncService`, background scheduler, and `/api/v1/sync` & `/api/v1/groups` endpoints
+- [~] Task: Implement `CatalogSyncService`, background scheduler, and `/api/v1/sync` & `/api/v1/groups` endpoints
   - [ ] Write failing unit tests (`backend/tests/test_sync.py`) for syncing Discovery Engine apps, IAM bindings, Cloud Identity group lookups/memberships (`groups:lookup`, `memberships:list`, `checkTransitiveMembership`), and recording `sync_runs` in PostgreSQL
   - [ ] Implement `CatalogSyncService` (`backend/app/services/sync.py`) and Cloud Identity group member listing in `backend/app/services/discovery.py`
   - [ ] Implement `POST /api/v1/sync`, `GET /api/v1/sync/status`, and `GET /api/v1/groups` routers (`backend/app/routers/sync.py`, `backend/app/routers/groups.py`) and background periodic scheduler in `backend/app/main.py`
