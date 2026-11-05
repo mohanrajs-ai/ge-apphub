@@ -8,15 +8,15 @@
   - [x] Implement `backend/app/database.py` and `backend/app/db_models.py` with automatic schema initialization and update `backend/app/config.py` with PostgreSQL and sync schedule settings
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `b74ef07`
 
-## Phase 2: Cloud Identity & Discovery Engine Scheduled Sync Engine
+## Phase 2: Cloud Identity & Discovery Engine Scheduled Sync Engine [checkpoint: c14d761]
 - [x] Task: Implement `CatalogSyncService`, background scheduler, and `/api/v1/sync` & `/api/v1/groups` endpoints `c14d761`
   - [x] Write failing unit tests (`backend/tests/test_sync.py`) for syncing Discovery Engine apps, IAM bindings, Cloud Identity group lookups/memberships (`groups:lookup`, `memberships:list`, `checkTransitiveMembership`), and recording `sync_runs` in PostgreSQL
   - [x] Implement `CatalogSyncService` (`backend/app/services/sync.py`) and Cloud Identity group member listing in `backend/app/services/discovery.py`
   - [x] Implement `POST /api/v1/sync`, `GET /api/v1/sync/status`, and `GET /api/v1/groups` routers (`backend/app/routers/sync.py`, `backend/app/routers/groups.py`) and background periodic scheduler in `backend/app/main.py`
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `c14d761`
 
 ## Phase 3: Google Cloud Identity Authentication & PostgreSQL-Backed Catalog Queries
-- [ ] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL
+- [~] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL
   - [ ] Write failing unit and integration tests (`backend/tests/test_auth.py`, `backend/tests/test_catalog.py`, `backend/tests/test_main.py`) verifying Google OAuth / Cloud Identity token validation, user persistence in PostgreSQL, and database-backed group & app queries
   - [ ] Update `backend/app/auth.py` and `backend/app/routers/auth.py` to validate Google OAuth / Cloud Identity credentials, upsert users in PostgreSQL, and resolve user groups from PostgreSQL (with live Cloud Identity fallback)
   - [ ] Update `backend/app/services/catalog.py` and `backend/app/routers/apps.py` to query applications and group bindings directly from PostgreSQL
