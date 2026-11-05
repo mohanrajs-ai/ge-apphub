@@ -4,7 +4,13 @@
  */
 
 import React, { useState } from 'react';
-import { ArrowRight, KeyRound, ShieldCheck, Users } from 'lucide-react';
+import {
+  ArrowRight,
+  ExternalLink,
+  KeyRound,
+  ShieldCheck,
+  Users,
+} from 'lucide-react';
 import { SuggestedUser } from '../types/catalog';
 
 const TECH_MAHINDRA_LOGO_URL =
@@ -15,6 +21,7 @@ export interface LoginScreenProps {
   loading: boolean;
   error: string | null;
   onLoginEmail: (email: string) => void;
+  onLoginSsoPopup?: () => void;
 }
 
 /**
@@ -25,6 +32,7 @@ export function LoginScreen({
   loading,
   error,
   onLoginEmail,
+  onLoginSsoPopup,
 }: LoginScreenProps): React.ReactElement {
   const [emailInput, setEmailInput] = useState<string>('');
 
@@ -104,7 +112,7 @@ export function LoginScreen({
             htmlFor="workspace-email-input"
             className="block text-xs font-semibold text-slate-700 dark:text-slate-300"
           >
-            Or sign in with Google Workspace email
+            Or sign in with Google Cloud Identity / Microsoft 365 SSO email
           </label>
           <div className="mt-2 flex gap-2">
             <input
@@ -112,7 +120,7 @@ export function LoginScreen({
               type="email"
               value={emailInput}
               onChange={(e) => setEmailInput(e.target.value)}
-              placeholder="user@mohanrajs.altostrat.com"
+              placeholder="pradeepg@mohanrajs.demo.altostrat.com"
               className="flex-1 rounded-xl border border-slate-200 bg-slate-50 px-3.5 py-2 text-sm text-slate-900 placeholder-slate-400 focus:border-blue-600 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800 dark:text-white"
             />
             <button
@@ -124,6 +132,17 @@ export function LoginScreen({
               <span>Sign In</span>
             </button>
           </div>
+          {onLoginSsoPopup && (
+            <button
+              type="button"
+              disabled={loading}
+              onClick={onLoginSsoPopup}
+              className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-700 shadow-sm transition hover:border-blue-500 hover:text-blue-600 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:border-blue-400"
+            >
+              <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+              <span>Continue to Google Cloud Identity & Microsoft 365 Login</span>
+            </button>
+          )}
         </form>
 
         <div className="mt-5 flex items-center justify-center gap-1.5 text-[11px] text-slate-400">

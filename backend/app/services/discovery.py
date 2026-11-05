@@ -299,17 +299,22 @@ def fetch_cloud_identity_group_details(
     group_email: str,
     project_id: str,
     candidate_users: list[str] | None = None,
+    _visited: set[str] | None = None,
 ) -> dict[str, Any]:
     """Fetches Cloud Identity group metadata and direct/transitive members.
+
+    Recursively expands nested Cloud Identity subgroups (type == 'GROUP')
+    so federated Microsoft Entra ID / M365 subgroup members are included.
 
     Args:
         group_email: Target Cloud Identity group email.
         project_id: Quota/billing GCP project ID.
         candidate_users: Optional candidate user emails to verify transitively.
+        _visited: Internal set of already-visited group emails to prevent loops.
 
     Returns:
         Dictionary with group_email, group_resource_name, display_name,
-        description, and sorted list of member emails.
+        description, members, and subgroups.
     """
     clean_group = group_email.strip().lower()
     default_label = clean_group.split("@", 1)[0].replace("-", " ").title()
@@ -319,11 +324,17 @@ def fetch_cloud_identity_group_details(
         "display_name": default_label,
         "description": f"Cloud Identity access group ({clean_group})",
         "members": [],
+        "subgroups": [],
     }
     if not clean_group or "@" not in clean_group:
         return result
 
+    visited = set(_visited) if _visited is not None else set()
+    visited.add(clean_group)
+
     members: set[str] = set()
+    subgroups: set[str] = set()
+    listed_memberships_ok = False
     try:
         credentials, _ = google.auth.default(
             scopes=[
@@ -366,14 +377,30 @@ def fetch_cloud_identity_group_details(
 
             mem_resp = session.get(
                 f"https://cloudidentity.googleapis.com/v1/{group_name}/"
-                "memberships?pageSize=200",
+                "memberships?pageSize=200&view=FULL",
                 timeout=5.0,
             )
             if mem_resp.status_code == 200:
+                listed_memberships_ok = True
                 for item in mem_resp.json().get("memberships") or []:
                     key_id = (item.get("preferredMemberKey") or {}).get("id")
-                    if key_id and "@" in str(key_id):
-                        members.add(str(key_id).strip().lower())
+                    if not key_id or "@" not in str(key_id):
+                        continue
+                    clean_id = str(key_id).strip().lower()
+                    item_type = str(item.get("type", "USER")).strip().upper()
+                    if item_type == "GROUP":
+                        subgroups.add(clean_id)
+                        if clean_id not in visited:
+                            sub_info = fetch_cloud_identity_group_details(
+                                group_email=clean_id,
+                                project_id=project_id,
+                                candidate_users=None,
+                                _visited=visited,
+                            )
+                            for sub_member in sub_info.get("members") or []:
+                                members.add(str(sub_member).strip().lower())
+                    else:
+                        members.add(clean_id)
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.debug(
             "Cloud Identity group details lookup failed for %s (%s).",
@@ -381,17 +408,23 @@ def fetch_cloud_identity_group_details(
             exc,
         )
 
-    for candidate in candidate_users or []:
-        clean_user = candidate.strip().lower()
-        if clean_user and clean_user not in members:
-            if check_cloud_identity_group_membership(
-                user_email=clean_user,
-                group_email=clean_group,
-                project_id=project_id,
+    if group_name and not listed_memberships_ok:
+        for candidate in candidate_users or []:
+            clean_user = candidate.strip().lower()
+            if (
+                clean_user
+                and clean_user not in members
+                and clean_user not in subgroups
             ):
-                members.add(clean_user)
+                if check_cloud_identity_group_membership(
+                    user_email=clean_user,
+                    group_email=clean_group,
+                    project_id=project_id,
+                ):
+                    members.add(clean_user)
 
-    result["members"] = sorted(members)
+    result["members"] = sorted(members - subgroups)
+    result["subgroups"] = sorted(subgroups)
     return result
 
 

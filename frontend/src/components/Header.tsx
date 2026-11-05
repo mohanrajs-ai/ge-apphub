@@ -30,6 +30,10 @@ export interface HeaderProps {
 const AVAILABLE_DEV_ROLES = [
   { value: 'employee', label: 'Standard Employee (Active User Groups)' },
   {
+    value: 'pradeepg@mohanrajs.demo.altostrat.com',
+    label: 'User: pradeepg@ (M365 Finance SSO)',
+  },
+  {
     value: 'mohanraj@mohanrajs.altostrat.com',
     label: 'User: mohanraj@ (HR & Ops Groups)',
   },

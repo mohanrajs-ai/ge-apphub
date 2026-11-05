@@ -18,6 +18,7 @@ export interface SuggestedUser {
 
 export interface AuthConfigResponse {
   google_client_id: string;
+  sso_redirect_enabled?: boolean;
   suggested_users: SuggestedUser[];
 }
 

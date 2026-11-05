@@ -6,10 +6,14 @@ import hashlib
 import hmac
 import json
 import os
+import secrets
+import urllib.parse
 from typing import Any
 
 import fastapi
 import google.auth
+import httpx
+from google.auth import _cloud_sdk
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
 from sqlalchemy import orm
@@ -74,6 +78,228 @@ def verify_session_token(
         return models.UserContext(**data)
     except Exception:  # pylint: disable=broad-except
         return None
+
+
+def get_oauth_client_credentials(
+    settings: config.Settings,
+) -> tuple[str, str]:
+    """Resolves Google OAuth 2.0 client ID and secret for redirect sign-in.
+
+    Uses configured GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET when set, and falls
+    back to the local ADC OAuth client config for local development.
+
+    Args:
+        settings: Active application settings.
+
+    Returns:
+        Tuple of (client_id, client_secret).
+    """
+    if settings.google_client_id:
+        return settings.google_client_id, settings.google_client_secret
+    try:
+        adc_path = _cloud_sdk.get_application_default_credentials_path()
+        if os.path.isfile(adc_path):
+            with open(adc_path, encoding="utf-8") as adc_file:
+                data = json.load(adc_file)
+            cid = str(data.get("client_id") or "").strip()
+            csec = str(data.get("client_secret") or "").strip()
+            if cid:
+                return cid, csec
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return "local-google-oauth-client", ""
+
+
+def create_oauth_state_token(payload: dict[str, str], secret: str) -> str:
+    """Signs an OAuth 2.0 state dictionary with HMAC-SHA256.
+
+    Args:
+        payload: Dictionary of state values (code_verifier, redirect_uri, etc).
+        secret: Server signing secret.
+
+    Returns:
+        Signed URL-safe state string.
+    """
+    payload_bytes = json.dumps(
+        payload, separators=(",", ":"), sort_keys=True
+    ).encode("utf-8")
+    encoded_payload = base64.urlsafe_b64encode(payload_bytes).decode("ascii")
+    signature = hmac.new(
+        secret.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    return f"{encoded_payload}.{signature}"
+
+
+def verify_oauth_state_token(
+    state: str,
+    secret: str,
+) -> dict[str, str] | None:
+    """Verifies an HMAC-SHA256 signed OAuth 2.0 state token.
+
+    Args:
+        state: Signed state string from the OAuth callback.
+        secret: Server signing secret.
+
+    Returns:
+        Decoded state dictionary if valid, otherwise None.
+    """
+    if not state or "." not in state:
+        return None
+    encoded_payload, signature = state.rsplit(".", 1)
+    expected_sig = hmac.new(
+        secret.encode("utf-8"),
+        encoded_payload.encode("ascii"),
+        hashlib.sha256,
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        return None
+    try:
+        raw_bytes = base64.urlsafe_b64decode(encoded_payload.encode("ascii"))
+        data = json.loads(raw_bytes.decode("utf-8"))
+        if isinstance(data, dict):
+            return {str(k): str(v) for k, v in data.items()}
+    except Exception:  # pylint: disable=broad-except
+        return None
+    return None
+
+
+def build_google_oauth_authorize_url(
+    email: str | None,
+    redirect_uri: str,
+    frontend_origin: str,
+    settings: config.Settings,
+) -> str:
+    """Builds the Google Cloud Identity OAuth 2.0 authorization redirect URL.
+
+    When a federated domain email (such as @mohanrajs.demo.altostrat.com) is
+    provided, includes login_hint and hd so Google Cloud Identity automatically
+    redirects the user to the configured Inbound SAML IdP (Microsoft 365).
+
+    Args:
+        email: Optional user email address for login_hint and domain discovery.
+        redirect_uri: OAuth 2.0 callback URL on this application.
+        frontend_origin: Origin URL to redirect back to after authentication.
+        settings: Active application settings.
+
+    Returns:
+        Full https://accounts.google.com/o/oauth2/v2/auth redirect URL.
+    """
+    client_id, _ = get_oauth_client_credentials(settings)
+    code_verifier = secrets.token_urlsafe(48)
+    challenge_digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
+    code_challenge = (
+        base64.urlsafe_b64encode(challenge_digest).decode("ascii").rstrip("=")
+    )
+    state = create_oauth_state_token(
+        {
+            "v": code_verifier,
+            "r": frontend_origin,
+            "u": redirect_uri,
+        },
+        settings.session_secret,
+    )
+    params: dict[str, str] = {
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "scope": "openid email profile",
+        "state": state,
+        "code_challenge": code_challenge,
+        "code_challenge_method": "S256",
+    }
+    clean_email = (email or "").strip().lower()
+    if clean_email and "@" in clean_email:
+        params["login_hint"] = clean_email
+        domain = clean_email.split("@", 1)[1].strip()
+        if domain:
+            params["hd"] = domain
+    else:
+        params["prompt"] = "select_account"
+    query = urllib.parse.urlencode(params)
+    return f"https://accounts.google.com/o/oauth2/v2/auth?{query}"
+
+
+def exchange_google_oauth_code(
+    code: str,
+    redirect_uri: str,
+    code_verifier: str,
+    settings: config.Settings,
+) -> dict[str, str]:
+    """Exchanges an OAuth 2.0 authorization code for verified user claims.
+
+    Args:
+        code: Authorization code from Google OAuth callback.
+        redirect_uri: Redirect URI used in the initial authorization request.
+        code_verifier: PKCE code verifier recovered from the signed state.
+        settings: Active application settings.
+
+    Returns:
+        Dictionary containing 'email', 'sub', and 'name'.
+
+    Raises:
+        ValueError: If code exchange fails or no verified email is returned.
+    """
+    client_id, client_secret = get_oauth_client_credentials(settings)
+    token_data: dict[str, str] = {
+        "grant_type": "authorization_code",
+        "code": code,
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "code_verifier": code_verifier,
+    }
+    if client_secret:
+        token_data["client_secret"] = client_secret
+
+    token_resp = httpx.post(
+        "https://oauth2.googleapis.com/token",
+        data=token_data,
+        timeout=10.0,
+    )
+    if token_resp.status_code != 200:
+        raise ValueError(
+            f"OAuth token exchange failed (HTTP {token_resp.status_code})."
+        )
+    tokens = token_resp.json()
+    raw_id_token = tokens.get("id_token")
+    access_token = tokens.get("access_token")
+
+    if raw_id_token:
+        try:
+            request_adapter = google_requests.Request()
+            claims = google_id_token.verify_oauth2_token(
+                raw_id_token,
+                request_adapter,
+                audience=client_id,
+            )
+            email = str(claims.get("email", "")).strip().lower()
+            if email and "@" in email:
+                return {
+                    "email": email,
+                    "sub": str(claims.get("sub") or email),
+                    "name": str(claims.get("name") or ""),
+                }
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    if access_token:
+        userinfo_resp = httpx.get(
+            "https://openidconnect.googleapis.com/v1/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=10.0,
+        )
+        if userinfo_resp.status_code == 200:
+            info = userinfo_resp.json()
+            email = str(info.get("email", "")).strip().lower()
+            if email and "@" in email:
+                return {
+                    "email": email,
+                    "sub": str(info.get("sub") or email),
+                    "name": str(info.get("name") or ""),
+                }
+
+    raise ValueError("Unable to verify user email from Google OAuth response.")
 
 
 def verify_google_id_token_email(

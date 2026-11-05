@@ -79,6 +79,7 @@ class AuthConfigResponse(pydantic.BaseModel):
     """Represents the response payload for GET /api/v1/auth/config."""
 
     google_client_id: str = ""
+    sso_redirect_enabled: bool = True
     suggested_users: list[SuggestedUser] = pydantic.Field(default_factory=list)
 
 

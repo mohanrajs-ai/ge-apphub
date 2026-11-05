@@ -5,6 +5,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, RefreshCw } from 'lucide-react';
 import {
+  buildGoogleSsoLoginUrl,
   fetchApps,
   fetchAuthConfig,
   fetchCurrentUser,
@@ -77,12 +78,22 @@ function filterAppsClientSide(
  * Main portal layout, authentication gate, and catalog state container.
  */
 export function App(): React.ReactElement {
-  const [authToken, setAuthToken] = useState<string | null>(() =>
-    window.sessionStorage.getItem(SESSION_TOKEN_KEY),
-  );
+  const [authToken, setAuthToken] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const callbackToken = params.get('auth_token');
+    if (callbackToken) {
+      window.sessionStorage.setItem(SESSION_TOKEN_KEY, callbackToken);
+      return callbackToken;
+    }
+    return window.sessionStorage.getItem(SESSION_TOKEN_KEY);
+  });
   const [suggestedUsers, setSuggestedUsers] = useState<SuggestedUser[]>([]);
+  const [ssoRedirectEnabled, setSsoRedirectEnabled] = useState<boolean>(false);
   const [authLoading, setAuthLoading] = useState<boolean>(false);
-  const [authError, setAuthError] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('auth_error');
+  });
   const [user, setUser] = useState<UserContext | null>(null);
   const [apps, setApps] = useState<CatalogApplication[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
@@ -100,9 +111,19 @@ export function App(): React.ReactElement {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('auth_token') || params.has('auth_error')) {
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
+  useEffect(() => {
     if (!authToken) {
       void fetchAuthConfig()
-        .then((cfg) => setSuggestedUsers(cfg.suggested_users))
+        .then((cfg) => {
+          setSuggestedUsers(cfg.suggested_users);
+          setSsoRedirectEnabled(Boolean(cfg.sso_redirect_enabled));
+        })
         .catch(() => setSuggestedUsers([]));
     }
   }, [authToken]);
@@ -144,6 +165,10 @@ export function App(): React.ReactElement {
   async function handleLoginEmail(email: string): Promise<void> {
     setAuthLoading(true);
     setAuthError(null);
+    if (ssoRedirectEnabled) {
+      window.location.assign(buildGoogleSsoLoginUrl(email));
+      return;
+    }
     try {
       const res = await loginWithEmail(email);
       window.sessionStorage.setItem(SESSION_TOKEN_KEY, res.token);
@@ -228,6 +253,11 @@ export function App(): React.ReactElement {
           loading={authLoading}
           error={authError}
           onLoginEmail={(email) => void handleLoginEmail(email)}
+          onLoginSsoPopup={
+            ssoRedirectEnabled
+              ? () => window.location.assign(buildGoogleSsoLoginUrl())
+              : undefined
+          }
         />
       ) : (
         <div className="min-h-screen bg-slate-50 text-slate-900 transition-colors dark:bg-slate-950 dark:text-slate-100">

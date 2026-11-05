@@ -213,6 +213,8 @@ def test_cloud_identity_fetch_group_members_helper(monkeypatch) -> None:
         def get(self, url: str, timeout: float = 5.0) -> _FakeResp:
             del timeout
             if "groups:lookup" in url:
+                if "ge-hr-users" in url:
+                    return _FakeResp(200, {"name": "groups/sub456"})
                 return _FakeResp(200, {"name": "groups/g123"})
             if url.endswith("groups/g123"):
                 return _FakeResp(
@@ -223,7 +225,16 @@ def test_cloud_identity_fetch_group_members_helper(monkeypatch) -> None:
                         "description": "HR Group",
                     },
                 )
-            if "/memberships?" in url or url.endswith("/memberships"):
+            if url.endswith("groups/sub456"):
+                return _FakeResp(
+                    200,
+                    {
+                        "name": "groups/sub456",
+                        "displayName": "M365 HR Subgroup",
+                        "description": "Federated Subgroup",
+                    },
+                )
+            if "groups/g123/memberships" in url:
                 return _FakeResp(
                     200,
                     {
@@ -231,7 +242,33 @@ def test_cloud_identity_fetch_group_members_helper(monkeypatch) -> None:
                             {
                                 "preferredMemberKey": {
                                     "id": "mohanraj@mohanrajs.altostrat.com"
-                                }
+                                },
+                                "type": "USER",
+                            },
+                            {
+                                "preferredMemberKey": {
+                                    "id": (
+                                        "ge-hr-users@"
+                                        "mohanrajs.demo.altostrat.com"
+                                    )
+                                },
+                                "type": "GROUP",
+                            },
+                        ]
+                    },
+                )
+            if "groups/sub456/memberships" in url:
+                return _FakeResp(
+                    200,
+                    {
+                        "memberships": [
+                            {
+                                "preferredMemberKey": {
+                                    "id": (
+                                        "pradeepg@mohanrajs.demo.altostrat.com"
+                                    )
+                                },
+                                "type": "USER",
                             }
                         ]
                     },
@@ -256,3 +293,5 @@ def test_cloud_identity_fetch_group_members_helper(monkeypatch) -> None:
     assert info["group_resource_name"] == "groups/g123"
     assert info["display_name"] == "HR Users"
     assert "mohanraj@mohanrajs.altostrat.com" in info["members"]
+    assert "pradeepg@mohanrajs.demo.altostrat.com" in info["members"]
+    assert "ge-hr-users@mohanrajs.demo.altostrat.com" in info["subgroups"]

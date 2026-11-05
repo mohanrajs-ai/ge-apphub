@@ -14,6 +14,7 @@ class Settings(pydantic.BaseModel):
     use_mock_data: bool = False
     admin_users: list[str] = pydantic.Field(default_factory=list)
     google_client_id: str = ""
+    google_client_secret: str = ""
     session_secret: str = "ge-apphub-session-secret-key"
     database_url: str = "postgresql+psycopg://localhost:5432/geapphub"
     sync_enabled: bool = True
@@ -85,6 +86,9 @@ def get_settings() -> Settings:
         ),
         admin_users=_parse_csv(os.environ.get("ADMIN_USERS")),
         google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
+        google_client_secret=os.environ.get(
+            "GOOGLE_CLIENT_SECRET", ""
+        ).strip(),
         session_secret=os.environ.get(
             "SESSION_SECRET", "ge-apphub-session-secret-key"
         ),

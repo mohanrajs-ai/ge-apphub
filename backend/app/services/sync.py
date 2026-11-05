@@ -210,11 +210,25 @@ class CatalogSyncService:
 
             groups_count = 0
             memberships_count = 0
-            for group_email in sorted(candidate_groups):
+            group_queue = list(sorted(candidate_groups))
+            processed_groups: set[str] = set()
+            all_user_emails: set[str] = set()
+            group_members_map: dict[str, set[str]] = {}
+
+            while group_queue:
+                group_email = group_queue.pop(0)
+                if group_email in processed_groups:
+                    continue
+                processed_groups.add(group_email)
                 group_info = self._discovery.fetch_group_details_and_members(
                     group_email=group_email,
                     candidate_users=candidate_users,
                 )
+                for sub_group in group_info.get("subgroups") or []:
+                    clean_sub = str(sub_group).strip().lower()
+                    if clean_sub and clean_sub not in processed_groups:
+                        group_queue.append(clean_sub)
+
                 grp_row = (
                     session.query(db_models.CloudIdentityGroupRecord)
                     .filter_by(group_email=group_email)
@@ -246,13 +260,34 @@ class CatalogSyncService:
                     grp_row.last_synced_at = now
                 groups_count += 1
 
+                members_set: set[str] = set()
+                for member_email in group_info.get("members") or []:
+                    clean_member = str(member_email).strip().lower()
+                    if clean_member:
+                        members_set.add(clean_member)
+                group_members_map[group_email] = members_set
+
+            for group_email, members_set in group_members_map.items():
+                filtered_members = members_set - processed_groups
+                group_members_map[group_email] = filtered_members
+                all_user_emails.update(filtered_members)
+
+            for group_email in processed_groups:
+                if group_email.startswith("all-users@"):
+                    group_members_map[group_email] = set(all_user_emails)
+
+            if processed_groups:
+                session.query(db_models.UserRecord).filter(
+                    db_models.UserRecord.email.in_(processed_groups)
+                ).delete(synchronize_session=False)
+
+            for group_email in sorted(processed_groups):
                 session.query(
                     db_models.UserGroupMembershipRecord
                 ).filter_by(group_email=group_email).delete()
-                for member_email in group_info.get("members") or []:
-                    clean_member = str(member_email).strip().lower()
-                    if not clean_member:
-                        continue
+                for clean_member in sorted(
+                    group_members_map.get(group_email, set())
+                ):
                     self._ensure_user_record(session, clean_member, now)
                     session.add(
                         db_models.UserGroupMembershipRecord(

@@ -43,6 +43,23 @@ export async function fetchAuthConfig(): Promise<AuthConfigResponse> {
 }
 
 /**
+ * Builds the backend Google Cloud Identity / Microsoft 365 SAML SSO login URL.
+ */
+export function buildGoogleSsoLoginUrl(email?: string): string {
+  const params = new URLSearchParams();
+  if (email && email.trim()) {
+    params.set('email', email.trim().toLowerCase());
+  }
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    params.set('redirect_origin', window.location.origin);
+  }
+  const query = params.toString();
+  return query
+    ? `/api/v1/auth/google/login?${query}`
+    : '/api/v1/auth/google/login';
+}
+
+/**
  * Signs in a user with their Google Workspace email address.
  */
 export async function loginWithEmail(email: string): Promise<LoginResponse> {
