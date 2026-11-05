@@ -16,11 +16,11 @@
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `c14d761`
 
 ## Phase 3: Google Cloud Identity Authentication & PostgreSQL-Backed Catalog Queries
-- [~] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL
-  - [ ] Write failing unit and integration tests (`backend/tests/test_auth.py`, `backend/tests/test_catalog.py`, `backend/tests/test_main.py`) verifying Google OAuth / Cloud Identity token validation, user persistence in PostgreSQL, and database-backed group & app queries
-  - [ ] Update `backend/app/auth.py` and `backend/app/routers/auth.py` to validate Google OAuth / Cloud Identity credentials, upsert users in PostgreSQL, and resolve user groups from PostgreSQL (with live Cloud Identity fallback)
-  - [ ] Update `backend/app/services/catalog.py` and `backend/app/routers/apps.py` to query applications and group bindings directly from PostgreSQL
-- [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL `f4f4f98`
+  - [x] Write failing unit and integration tests (`backend/tests/test_auth.py`, `backend/tests/test_catalog.py`, `backend/tests/test_main.py`) verifying Google OAuth / Cloud Identity token validation, user persistence in PostgreSQL, and database-backed group & app queries
+  - [x] Update `backend/app/auth.py` and `backend/app/routers/auth.py` to validate Google OAuth / Cloud Identity credentials, upsert users in PostgreSQL, and resolve user groups from PostgreSQL (with live Cloud Identity fallback)
+  - [x] Update `backend/app/services/catalog.py` and `backend/app/routers/apps.py` to query applications and group bindings directly from PostgreSQL
+- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
 
 ## Phase 4: Frontend Sync Status Controls & Local End-to-End Verification
 - [ ] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack
