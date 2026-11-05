@@ -15,15 +15,15 @@
   - [x] Implement `POST /api/v1/sync`, `GET /api/v1/sync/status`, and `GET /api/v1/groups` routers (`backend/app/routers/sync.py`, `backend/app/routers/groups.py`) and background periodic scheduler in `backend/app/main.py`
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `c14d761`
 
-## Phase 3: Google Cloud Identity Authentication & PostgreSQL-Backed Catalog Queries
+## Phase 3: Google Cloud Identity Authentication & PostgreSQL-Backed Catalog Queries [checkpoint: f4f4f98]
 - [x] Task: Update authentication and catalog services to authenticate with Cloud Identity and query PostgreSQL `f4f4f98`
   - [x] Write failing unit and integration tests (`backend/tests/test_auth.py`, `backend/tests/test_catalog.py`, `backend/tests/test_main.py`) verifying Google OAuth / Cloud Identity token validation, user persistence in PostgreSQL, and database-backed group & app queries
   - [x] Update `backend/app/auth.py` and `backend/app/routers/auth.py` to validate Google OAuth / Cloud Identity credentials, upsert users in PostgreSQL, and resolve user groups from PostgreSQL (with live Cloud Identity fallback)
   - [x] Update `backend/app/services/catalog.py` and `backend/app/routers/apps.py` to query applications and group bindings directly from PostgreSQL
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `f4f4f98`
 
 ## Phase 4: Frontend Sync Status Controls & Local End-to-End Verification
-- [ ] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack
+- [~] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack
   - [ ] Write failing frontend unit tests (`frontend/src/App.test.tsx`) for displaying PostgreSQL sync status and triggering on-demand sync
   - [ ] Update frontend API client and `Header.tsx` to display synced database status and a "Sync Now" control, and verify live local PostgreSQL database population and queries
 - [ ] Task: Phase Verification & Checkpoint (Refer to workflow.md)
