@@ -22,8 +22,8 @@
   - [x] Update `backend/app/services/catalog.py` and `backend/app/routers/apps.py` to query applications and group bindings directly from PostgreSQL
 - [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `f4f4f98`
 
-## Phase 4: Frontend Sync Status Controls & Local End-to-End Verification
+## Phase 4: Frontend Sync Status Controls & Local End-to-End Verification [checkpoint: 005dc30]
 - [x] Task: Add PostgreSQL Sync Status indicator and manual Sync trigger in Frontend Header and verify live local PostgreSQL stack `005dc30`
   - [x] Write failing frontend unit tests (`frontend/src/App.test.tsx`) for displaying PostgreSQL sync status and triggering on-demand sync
   - [x] Update frontend API client and `Header.tsx` to display synced database status and a "Sync Now" control, and verify live local PostgreSQL database population and queries
-- [~] Task: Phase Verification & Checkpoint (Refer to workflow.md)
+- [x] Task: Phase Verification & Checkpoint (Refer to workflow.md) `005dc30`
