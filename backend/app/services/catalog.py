@@ -1,8 +1,14 @@
-"""Catalog service merging Discovery Engine apps with Firestore metadata."""
+"""Catalog service querying PostgreSQL and merging Discovery Engine metadata."""
 
+from sqlalchemy import orm
+
+from app import auth
+from app import config
+from app import db_models
 from app import models
 from app.services import discovery
 from app.services import firestore as firestore_service
+from app.services import sync
 
 
 def _is_user_authorized(
@@ -90,21 +96,93 @@ def _matches_search_query(
 
 
 class CatalogService:
-    """Merges discovered GE engines with Firestore metadata and filters."""
+    """Queries synced GE applications from PostgreSQL or live services."""
 
     def __init__(
         self,
         discovery_service: discovery.DiscoveryEngineService,
         firestore_service: firestore_service.FirestoreMetadataService,
+        session: orm.Session | None = None,
     ) -> None:
         """Initializes CatalogService.
 
         Args:
             discovery_service: Service for listing Discovery Engine apps.
             firestore_service: Service for fetching Firestore metadata.
+            session: Optional SQLAlchemy database session for DB-backed queries.
         """
         self._discovery = discovery_service
         self._firestore = firestore_service
+        self._session = session
+
+    def _list_visible_from_db(
+        self,
+        session: orm.Session,
+        user_roles: list[str],
+        user_email: str = "",
+        user_groups: list[str] | None = None,
+    ) -> list[models.CatalogApplication]:
+        """Queries GE applications and user groups directly from PostgreSQL."""
+        rows = (
+            session.query(db_models.GEApplicationRecord)
+            .order_by(db_models.GEApplicationRecord.id.asc())
+            .all()
+        )
+        if not rows:
+            settings = getattr(
+                self._discovery, "_settings", None
+            ) or config.get_settings()
+            sync_svc = sync.CatalogSyncService(
+                settings=settings,
+                discovery_service=self._discovery,
+                firestore_service=self._firestore,
+            )
+            sync_svc.run_sync(session=session, trigger_source="auto_seed")
+            rows = (
+                session.query(db_models.GEApplicationRecord)
+                .order_by(db_models.GEApplicationRecord.id.asc())
+                .all()
+            )
+
+        resolved_groups = user_groups
+        if resolved_groups is None and user_email:
+            settings = getattr(
+                self._discovery, "_settings", None
+            ) or config.get_settings()
+            resolved_groups = auth.resolve_user_groups_from_db(
+                session=session,
+                user_email=user_email,
+                settings=settings,
+                discovery_service=self._discovery,
+            )
+
+        visible: list[models.CatalogApplication] = []
+        for row in rows:
+            if not _is_user_authorized(
+                allowed_roles=list(row.allowed_roles or []),
+                user_roles=user_roles,
+                user_email=user_email,
+                user_groups=resolved_groups,
+                iam_principals=list(row.iam_principals or []),
+            ):
+                continue
+            visible.append(
+                models.CatalogApplication(
+                    engine_id=row.engine_id,
+                    display_name=row.display_name,
+                    description=row.description,
+                    category=row.category,
+                    department=row.department,
+                    tags=list(row.tags or []),
+                    icon_name=row.icon_name,
+                    launch_url=row.launch_url,
+                    location=row.location,
+                    solution_type=row.solution_type,
+                    allowed_roles=list(row.allowed_roles or []),
+                    featured=row.featured,
+                )
+            )
+        return visible
 
     def list_visible_applications(
         self,
@@ -122,6 +200,13 @@ class CatalogService:
         Returns:
             List of role- and group-filtered CatalogApplication items.
         """
+        if self._session is not None:
+            return self._list_visible_from_db(
+                session=self._session,
+                user_roles=user_roles,
+                user_email=user_email,
+                user_groups=user_groups,
+            )
         engines = self._discovery.list_engines()
         enrichment_map = self._firestore.get_enrichment_map()
 

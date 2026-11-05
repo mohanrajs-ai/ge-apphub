@@ -180,3 +180,112 @@ def test_auth_login_bearer_session_and_logout(monkeypatch) -> None:
     assert auth.verify_google_id_token_email("invalid-jwt") is None
     monkeypatch.setenv("DEFAULT_USER_EMAIL", "env@mohanrajs.altostrat.com")
     assert auth._resolve_adc_user_email() == "env@mohanrajs.altostrat.com"
+
+
+def test_login_persists_user_and_resolves_groups_from_db(monkeypatch) -> None:
+    """Verifies /api/v1/auth/login upserts UserRecord and reads DB groups."""
+    from app import database
+    from app import db_models
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    monkeypatch.setenv("USE_MOCK_DATA", "false")
+    monkeypatch.setenv("SYNC_ON_STARTUP", "false")
+    database.reset_engine_cache()
+    database.init_db()
+
+    with database.session_scope() as session:
+        session.add(
+            db_models.CloudIdentityGroupRecord(
+                group_email="hr-app-01-users@mohanrajs.altostrat.com",
+                group_resource_name="groups/hr01",
+                display_name="HR App 01 Users",
+            )
+        )
+        session.add(
+            db_models.UserGroupMembershipRecord(
+                user_email="mohanraj@mohanrajs.altostrat.com",
+                group_email="hr-app-01-users@mohanrajs.altostrat.com",
+            )
+        )
+        session.commit()
+
+    app = main.create_app()
+    client = testclient.TestClient(app)
+
+    login_resp = client.post(
+        "/api/v1/auth/login",
+        json={"email": "mohanraj@mohanrajs.altostrat.com"},
+    )
+    assert login_resp.status_code == 200
+    payload = login_resp.json()
+    assert payload["user"]["groups"] == [
+        "hr-app-01-users@mohanrajs.altostrat.com"
+    ]
+
+    with database.session_scope() as session:
+        saved_user = (
+            session.query(db_models.UserRecord)
+            .filter_by(email="mohanraj@mohanrajs.altostrat.com")
+            .one_or_none()
+        )
+        assert saved_user is not None
+        assert saved_user.auth_source == "cloud_identity_workspace"
+
+        # Test upsert update path and live fallback when user has no DB groups
+        updated = auth.upsert_authenticated_user(
+            session=session,
+            email="mohanraj@mohanrajs.altostrat.com",
+            roles=["admin", "employee"],
+            auth_source="google_cloud_identity",
+        )
+        assert "admin" in updated.roles
+
+        class _FakeDisc:
+            def _group_membership_checker(
+                self, user_email: str, group_email: str, _proj: str
+            ) -> bool:
+                return (
+                    user_email == "newuser@mohanrajs.altostrat.com"
+                    and group_email == "hr-app-01-users@mohanrajs.altostrat.com"
+                )
+
+        fallback_groups = auth.resolve_user_groups_from_db(
+            session=session,
+            user_email="newuser@mohanrajs.altostrat.com",
+            discovery_service=_FakeDisc(),
+            allow_live_fallback=True,
+        )
+        assert fallback_groups == ["hr-app-01-users@mohanrajs.altostrat.com"]
+
+        # Test empty synced_groups fallback to list_engines
+        session.query(db_models.CloudIdentityGroupRecord).delete()
+        session.commit()
+
+        class _FakeDiscNoSynced:
+            def list_engines(self):
+                return []
+
+            def resolve_user_groups(self, user_email: str, engines: list):
+                del user_email, engines
+                return ["ops-app-01-users@mohanrajs.altostrat.com"]
+
+        live_groups = auth.resolve_user_groups_from_db(
+            session=session,
+            user_email="third@mohanrajs.altostrat.com",
+            discovery_service=_FakeDiscNoSynced(),
+            allow_live_fallback=True,
+        )
+        assert live_groups == ["ops-app-01-users@mohanrajs.altostrat.com"]
+
+    monkeypatch.setattr(
+        auth.google_id_token,
+        "verify_oauth2_token",
+        lambda _tok, _req, audience=None: {
+            "email": "verified@mohanrajs.altostrat.com",
+            "aud": audience,
+        },
+    )
+    assert (
+        auth.verify_google_id_token_email("jwt", client_id="cid")
+        == "verified@mohanrajs.altostrat.com"
+    )

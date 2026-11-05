@@ -1,9 +1,11 @@
 """FastAPI router for user authentication and Cloud Identity group login."""
 
 import fastapi
+from sqlalchemy import orm
 
 from app import auth
 from app import config
+from app import database
 from app import models
 from app.services import discovery
 
@@ -37,10 +39,14 @@ def get_auth_config() -> models.AuthConfigResponse:
 
 
 @router.post("/login", response_model=models.LoginResponse)
-def login_user(payload: models.LoginRequest) -> models.LoginResponse:
+def login_user(
+    payload: models.LoginRequest,
+    session: orm.Session = fastapi.Depends(database.get_db_session),
+) -> models.LoginResponse:
     """Authenticates a user via Google ID token or Workspace email."""
     settings = config.get_settings()
     resolved_email: str | None = None
+    db_auth_source = "cloud_identity_workspace"
 
     if payload.id_token:
         resolved_email = auth.verify_google_id_token_email(
@@ -52,6 +58,7 @@ def login_user(payload: models.LoginRequest) -> models.LoginResponse:
                 status_code=401,
                 detail="Invalid Google OAuth ID token.",
             )
+        db_auth_source = "google_cloud_identity"
     elif payload.email:
         candidate = payload.email.strip().lower()
         if "@" not in candidate or "." not in candidate.split("@", 1)[1]:
@@ -70,11 +77,19 @@ def login_user(payload: models.LoginRequest) -> models.LoginResponse:
     if resolved_email in settings.admin_users and "admin" not in roles:
         roles.insert(0, "admin")
 
+    auth.upsert_authenticated_user(
+        session=session,
+        email=resolved_email,
+        roles=roles,
+        auth_source=db_auth_source,
+    )
     disc_service = discovery.DiscoveryEngineService(settings=settings)
-    engines = disc_service.list_engines()
-    user_groups = disc_service.resolve_user_groups(
+    user_groups = auth.resolve_user_groups_from_db(
+        session=session,
         user_email=resolved_email,
-        engines=engines,
+        settings=settings,
+        discovery_service=disc_service,
+        allow_live_fallback=True,
     )
 
     user_ctx = models.UserContext(

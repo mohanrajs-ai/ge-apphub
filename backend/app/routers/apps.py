@@ -1,9 +1,11 @@
 """FastAPI router for Gemini Enterprise application catalog endpoints."""
 
 import fastapi
+from sqlalchemy import orm
 
 from app import auth
 from app import config
+from app import database
 from app import models
 from app.services import catalog
 from app.services import discovery
@@ -12,8 +14,13 @@ from app.services import firestore as firestore_service
 router = fastapi.APIRouter(prefix="/api/v1/apps", tags=["catalog"])
 
 
-def get_catalog_service() -> catalog.CatalogService:
-    """Provides a configured CatalogService instance.
+def get_catalog_service(
+    session: orm.Session = fastapi.Depends(database.get_db_session),
+) -> catalog.CatalogService:
+    """Provides a configured database-backed CatalogService instance.
+
+    Args:
+        session: Active SQLAlchemy database session.
 
     Returns:
         Configured CatalogService instance.
@@ -24,6 +31,7 @@ def get_catalog_service() -> catalog.CatalogService:
     return catalog.CatalogService(
         discovery_service=disc_service,
         firestore_service=fs_service,
+        session=session,
     )
 
 

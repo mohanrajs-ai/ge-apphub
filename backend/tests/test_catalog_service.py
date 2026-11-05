@@ -207,3 +207,70 @@ def test_catalog_service_group_based_visibility() -> None:
         user_email="admin@mohanrajs.altostrat.com",
     )
     assert [app.engine_id for app in admin_user_apps] == ["finance-app-01"]
+
+
+def test_catalog_service_queries_from_postgresql_session(monkeypatch) -> None:
+    """Verifies CatalogService serves apps and groups directly from DB."""
+    from app import database
+    from app import db_models
+
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
+    database.reset_engine_cache()
+    database.init_db()
+
+    with database.session_scope() as session:
+        session.add(
+            db_models.GEApplicationRecord(
+                engine_id="db-hr-app-01",
+                display_name="Database Synced HR App",
+                description="Served from PostgreSQL",
+                category="Productivity",
+                department="People & HR",
+                tags=["hr", "postgres"],
+                icon_name="Users",
+                launch_url="https://vertexaisearch.cloud.google.com/home/cid/1",
+                default_launch_url=(
+                    "https://vertexaisearch.cloud.google.com/home/cid/1"
+                ),
+                location="global",
+                solution_type="SOLUTION_TYPE_SEARCH",
+                iam_principals=[
+                    "group:hr-app-01-users@mohanrajs.altostrat.com"
+                ],
+                allowed_roles=[
+                    "group:hr-app-01-users@mohanrajs.altostrat.com"
+                ],
+                featured=True,
+            )
+        )
+        session.add(
+            db_models.UserGroupMembershipRecord(
+                user_email="mohanraj@mohanrajs.altostrat.com",
+                group_email="hr-app-01-users@mohanrajs.altostrat.com",
+            )
+        )
+        session.commit()
+
+        # Failing discovery service proves CatalogService reads from DB
+        failing_disc = mock.MagicMock()
+        failing_disc.list_engines.side_effect = AssertionError(
+            "Should not call live Discovery Engine when DB has synced apps"
+        )
+        cat_svc = catalog.CatalogService(
+            discovery_service=failing_disc,
+            firestore_service=mock.MagicMock(),
+            session=session,
+        )
+
+        visible = cat_svc.list_applications(
+            user_roles=["employee"],
+            user_email="mohanraj@mohanrajs.altostrat.com",
+        )
+        assert len(visible) == 1
+        assert visible[0].engine_id == "db-hr-app-01"
+
+        unauthorized = cat_svc.list_applications(
+            user_roles=["employee"],
+            user_email="other@mohanrajs.altostrat.com",
+        )
+        assert unauthorized == []

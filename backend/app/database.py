@@ -2,6 +2,7 @@
 
 import contextlib
 import logging
+import os
 import pathlib
 from collections import abc
 
@@ -67,7 +68,13 @@ def get_engine(database_url: str | None = None) -> sqlalchemy.Engine:
     Returns:
         Active SQLAlchemy Engine.
     """
-    resolved_url = database_url or config.get_settings().database_url
+    resolved_url = database_url
+    if not resolved_url:
+        settings = config.get_settings()
+        if settings.use_mock_data and "DATABASE_URL" not in os.environ:
+            resolved_url = "sqlite:///:memory:"
+        else:
+            resolved_url = settings.database_url
     if resolved_url in _ENGINE_CACHE:
         return _ENGINE_CACHE[resolved_url]
 

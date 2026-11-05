@@ -1,17 +1,22 @@
 """Authentication and role resolution dependencies for FastAPI."""
 
 import base64
+import datetime
 import hashlib
 import hmac
 import json
 import os
+from typing import Any
 
 import fastapi
 import google.auth
 from google.auth.transport import requests as google_requests
 from google.oauth2 import id_token as google_id_token
+from sqlalchemy import orm
 
 from app import config
+from app import database
+from app import db_models
 from app import models
 
 _CACHED_ADC_EMAIL: str | None = None
@@ -160,6 +165,161 @@ def _normalize_roles(raw_roles: str | None) -> list[str]:
     return roles
 
 
+def upsert_authenticated_user(
+    session: orm.Session,
+    email: str,
+    roles: list[str],
+    auth_source: str,
+    user_id: str | None = None,
+    display_name: str | None = None,
+) -> db_models.UserRecord:
+    """Upserts an authenticated user profile into PostgreSQL.
+
+    Args:
+        session: Active SQLAlchemy database session.
+        email: Lowercase user email address.
+        roles: Normalized user role list.
+        auth_source: Source of authentication (e.g. google_cloud_identity).
+        user_id: Optional external subject/user identifier.
+        display_name: Optional user display name.
+
+    Returns:
+        Persisted UserRecord instance.
+    """
+    clean_email = email.strip().lower()
+    now = datetime.datetime.now(datetime.timezone.utc)
+    default_name = (
+        display_name
+        or clean_email.split("@", 1)[0].replace(".", " ").title()
+    )
+    record = (
+        session.query(db_models.UserRecord)
+        .filter_by(email=clean_email)
+        .one_or_none()
+    )
+    if record is None:
+        record = db_models.UserRecord(
+            email=clean_email,
+            user_id=user_id or clean_email,
+            display_name=default_name,
+            roles=list(roles),
+            auth_source=auth_source,
+            last_login_at=now,
+            updated_at=now,
+        )
+        session.add(record)
+    else:
+        record.roles = list(roles)
+        record.auth_source = auth_source
+        record.last_login_at = now
+        record.updated_at = now
+    session.commit()
+    return record
+
+
+def resolve_user_groups_from_db(
+    session: orm.Session,
+    user_email: str,
+    settings: config.Settings | None = None,
+    discovery_service: Any | None = None,
+    allow_live_fallback: bool = False,
+) -> list[str]:
+    """Resolves a user's Cloud Identity groups from PostgreSQL with fallback.
+
+    Args:
+        session: Active SQLAlchemy database session.
+        user_email: Authenticated user email address.
+        settings: Optional Settings instance.
+        discovery_service: Optional DiscoveryEngineService for live fallback.
+        allow_live_fallback: Whether to query live Cloud Identity on DB miss.
+
+    Returns:
+        Sorted list of Cloud Identity group email addresses.
+    """
+    clean_email = user_email.strip().lower()
+    if not clean_email or "@" not in clean_email:
+        return []
+
+    rows = (
+        session.query(db_models.UserGroupMembershipRecord)
+        .filter_by(user_email=clean_email)
+        .all()
+    )
+    if rows:
+        return sorted({r.group_email.strip().lower() for r in rows})
+
+    if not allow_live_fallback:
+        return []
+
+    active_settings = settings or config.get_settings()
+    if active_settings.use_mock_data:
+        return []
+
+    synced_groups = [
+        g.group_email
+        for g in session.query(db_models.CloudIdentityGroupRecord).all()
+    ]
+    if synced_groups and discovery_service is not None:
+        now = datetime.datetime.now(datetime.timezone.utc)
+        matched: list[str] = []
+        for group_email in sorted(set(synced_groups)):
+            if discovery_service._group_membership_checker(  # pylint: disable=protected-access
+                clean_email,
+                group_email,
+                active_settings.gcp_project_id,
+            ):
+                matched.append(group_email)
+                session.add(
+                    db_models.UserGroupMembershipRecord(
+                        user_email=clean_email,
+                        group_email=group_email,
+                        membership_role="MEMBER",
+                        synced_at=now,
+                    )
+                )
+        if matched:
+            session.commit()
+        return matched
+
+    if discovery_service is not None:
+        engines = discovery_service.list_engines()
+        live_groups = discovery_service.resolve_user_groups(
+            user_email=clean_email,
+            engines=engines,
+        )
+        now = datetime.datetime.now(datetime.timezone.utc)
+        for group_email in live_groups:
+            session.add(
+                db_models.UserGroupMembershipRecord(
+                    user_email=clean_email,
+                    group_email=group_email,
+                    membership_role="MEMBER",
+                    synced_at=now,
+                )
+            )
+        if live_groups:
+            session.commit()
+        return live_groups
+    return []
+
+
+def _enrich_groups_from_db(user: models.UserContext) -> models.UserContext:
+    """Populates user.groups from PostgreSQL if not already present."""
+    if user.groups:
+        return user
+    try:
+        with database.session_scope() as session:
+            groups = resolve_user_groups_from_db(
+                session=session,
+                user_email=user.email,
+            )
+            if groups:
+                user.groups = groups
+    except Exception:  # pylint: disable=broad-except
+        pass
+    return user
+
+
 def resolve_current_user(request: fastapi.Request) -> models.UserContext:
     """Resolves the active user context from IAP or development headers.
 
@@ -180,7 +340,7 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
             dev_role = headers.get("x-dev-user-role")
             if dev_role and "@" not in dev_role:
                 token_user.roles = _normalize_roles(dev_role)
-            return token_user
+            return _enrich_groups_from_db(token_user)
 
     iap_email = headers.get("x-goog-authenticated-user-email")
     iap_id = headers.get("x-goog-authenticated-user-id")
@@ -191,11 +351,13 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
         if clean_email in settings.admin_users:
             roles.append("admin")
         roles.append("employee")
-        return models.UserContext(
-            email=clean_email,
-            user_id=clean_id,
-            roles=roles,
-            auth_source="gcp_iap",
+        return _enrich_groups_from_db(
+            models.UserContext(
+                email=clean_email,
+                user_id=clean_id,
+                roles=roles,
+                auth_source="gcp_iap",
+            )
         )
 
     dev_email = headers.get("x-dev-user-email")
@@ -214,19 +376,23 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
             adc_email = _resolve_adc_user_email()
             resolved_email = adc_email or "anonymous@enterprise.example.com"
             resolved_roles = _normalize_roles(dev_role)
-        return models.UserContext(
-            email=resolved_email,
-            user_id=resolved_email,
-            roles=resolved_roles,
-            auth_source="dev_override",
+        return _enrich_groups_from_db(
+            models.UserContext(
+                email=resolved_email,
+                user_id=resolved_email,
+                roles=resolved_roles,
+                auth_source="dev_override",
+            )
         )
 
     if settings.use_mock_data:
-        return models.UserContext(
-            email="developer@enterprise.example.com",
-            user_id="dev-user-001",
-            roles=["employee", "engineering", "data-analyst"],
-            auth_source="mock_default",
+        return _enrich_groups_from_db(
+            models.UserContext(
+                email="developer@enterprise.example.com",
+                user_id="dev-user-001",
+                roles=["employee", "engineering", "data-analyst"],
+                auth_source="mock_default",
+            )
         )
 
     adc_email = _resolve_adc_user_email()
@@ -234,11 +400,13 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
         roles = ["employee"]
         if adc_email in settings.admin_users:
             roles.insert(0, "admin")
-        return models.UserContext(
-            email=adc_email,
-            user_id=adc_email,
-            roles=roles,
-            auth_source="gcp_adc",
+        return _enrich_groups_from_db(
+            models.UserContext(
+                email=adc_email,
+                user_id=adc_email,
+                roles=roles,
+                auth_source="gcp_adc",
+            )
         )
 
     return models.UserContext(
