@@ -15,6 +15,10 @@ class Settings(pydantic.BaseModel):
     admin_users: list[str] = pydantic.Field(default_factory=list)
     google_client_id: str = ""
     session_secret: str = "ge-apphub-session-secret-key"
+    database_url: str = "postgresql+psycopg://localhost:5432/geapphub"
+    sync_enabled: bool = True
+    sync_interval_seconds: int = 900
+    sync_on_startup: bool = True
 
 
 def _parse_bool(value: str | None, default: bool = False) -> bool:
@@ -46,6 +50,24 @@ def _parse_csv(value: str | None) -> list[str]:
     return [item.strip().lower() for item in value.split(",") if item.strip()]
 
 
+def _parse_int(value: str | None, default: int) -> int:
+    """Parses an integer environment variable string.
+
+    Args:
+        value: Raw environment variable value.
+        default: Default integer when value is None or invalid.
+
+    Returns:
+        Parsed integer value.
+    """
+    if value is None or not value.strip():
+        return default
+    try:
+        return int(value.strip())
+    except ValueError:
+        return default
+
+
 def get_settings() -> Settings:
     """Loads and returns current application settings from the environment.
 
@@ -65,5 +87,17 @@ def get_settings() -> Settings:
         google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
         session_secret=os.environ.get(
             "SESSION_SECRET", "ge-apphub-session-secret-key"
+        ),
+        database_url=os.environ.get(
+            "DATABASE_URL", "postgresql+psycopg://localhost:5432/geapphub"
+        ).strip(),
+        sync_enabled=_parse_bool(
+            os.environ.get("SYNC_ENABLED"), default=True
+        ),
+        sync_interval_seconds=_parse_int(
+            os.environ.get("SYNC_INTERVAL_SECONDS"), default=900
+        ),
+        sync_on_startup=_parse_bool(
+            os.environ.get("SYNC_ON_STARTUP"), default=True
         ),
     )

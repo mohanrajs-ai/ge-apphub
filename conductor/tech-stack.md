@@ -18,7 +18,9 @@
   - `google-auth`: Application Default Credentials (ADC), Google Cloud IAM, and Enterprise SSO / IAP identity verification.
 
 ## 4. Database & Storage
-- **Primary Metadata Store:** Google Cloud Firestore (`google-cloud-firestore`) — Serverless NoSQL document store used to persist custom catalog enrichment metadata (business categories, department tags, custom icons, launch URLs, and visibility rules) alongside live Discovery Engine API records.
+- **Primary Relational Store:** PostgreSQL 16 (`postgresql+psycopg`) with SQLAlchemy 2.0 ORM — Used to persist synchronized Users (`users`), Cloud Identity Groups (`cloud_identity_groups`), User-Group Memberships (`user_group_memberships`), Gemini Enterprise Applications (`ge_applications`), Application-Group IAM Bindings (`app_group_bindings`), and Sync Run Audit Logs (`sync_runs`).
+- **Scheduled Background Sync Worker:** FastAPI background scheduler (`CatalogSyncService`) that periodically syncs Discovery Engine applications, IAM policies, Cloud Identity groups/memberships, and Firestore metadata into PostgreSQL on a defined schedule (`SYNC_INTERVAL_SECONDS`).
+- **Metadata Enrichment Store:** Google Cloud Firestore (`google-cloud-firestore`) — Optional serverless NoSQL document store merged during sync to enrich catalog metadata (business categories, department tags, custom icons, launch URLs, and visibility rules).
 
 ## 5. Development, Testing & Deployment Tooling
 - **Python Environment & Linting:** `uv` / `venv`, `pytest` (unit & integration testing), `ruff` (linting & formatting)
