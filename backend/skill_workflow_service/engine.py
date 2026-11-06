@@ -219,8 +219,9 @@ def share_skill_in_discovery_engine(
     skill: db_models.GESkillRecord,
     principals: list[str],
     settings: config.Settings,
+    registry_resource_name: str = "",
 ) -> bool:
-    """Applies Stage 5 IAM approval, enabling & publishing across GE Apps."""
+    """Applies Stage 5 IAM sharing from Agent Platform Skill Registry & GE."""
     if settings.use_mock_data or not skill.resource_name:
         return True
     try:
@@ -229,7 +230,6 @@ def share_skill_in_discovery_engine(
         )
         authed = google_requests.AuthorizedSession(credentials)
         project = settings.gcp_project_id or "mohandemo"
-        location = settings.gcp_location or "global"
         authed.headers["x-goog-user-project"] = project
         base = "https://discoveryengine.googleapis.com/v1alpha"
 
@@ -281,51 +281,47 @@ def share_skill_in_discovery_engine(
             policy_body["policy"]["etag"] = etag
         authed.post(set_pol_url, json=policy_body, timeout=5.0)
 
-        eng_url = (
-            f"{base}/projects/{project}/locations/{location}/"
-            "collections/default_collection/engines"
-        )
-        eng_resp = authed.get(eng_url, timeout=8.0)
-        if eng_resp.status_code == 200:
-            for eng in eng_resp.json().get("engines") or []:
-                eng_id = str(eng.get("name") or "").split("/")[-1]
-                if not eng_id or eng_id == skill.engine_id:
-                    continue
-                ag_list_url = (
-                    f"{base}/projects/{project}/locations/{location}/"
-                    f"collections/default_collection/engines/{eng_id}/"
-                    "assistants/default_assistant/agents"
-                )
-                ag_resp = authed.get(ag_list_url, timeout=5.0)
-                if ag_resp.status_code != 200:
-                    continue
-                exists = any(
-                    a.get("displayName") == skill.display_name
-                    for a in (ag_resp.json().get("agents") or [])
-                )
-                if not exists:
-                    inst = (skill.instruction or "").replace(
-                        f"/engines/{skill.engine_id}/",
-                        f"/engines/{eng_id}/",
+        if registry_resource_name:
+            ar_base = "https://agentregistry.googleapis.com/v1alpha"
+            ar_pol_url = f"{ar_base}/{registry_resource_name}:getIamPolicy"
+            ar_resp = authed.get(ar_pol_url, timeout=8.0)
+            if ar_resp.status_code == 200:
+                ar_json = ar_resp.json()
+                ar_bindings = list(ar_json.get("bindings") or [])
+                ar_etag = str(ar_json.get("etag") or "")
+                reg_members: set[str] = {"domain:mohanrajs.altostrat.com"}
+                for mem in user_members:
+                    reg_members.add(mem)
+                    raw_email = mem.split(":", 1)[-1]
+                    reg_members.add(
+                        "principalSet://agents.global.org-962907136954."
+                        "system.id.goog/attribute."
+                        f"agentResourceProjectAgentUser/720923281941/{raw_email}"
                     )
-                    c_resp = authed.post(
-                        ag_list_url,
-                        json={
-                            "displayName": skill.display_name,
-                            "description": skill.description,
-                            "sharingConfig": {"scope": "ALL_USERS"},
-                            "skillAgentDefinition": {"instruction": inst},
-                        },
-                        timeout=10.0,
+                viewer_updated = False
+                for b in ar_bindings:
+                    if b.get("role") == "roles/agentregistry.viewer":
+                        b["members"] = sorted(
+                            set(b.get("members") or []).union(reg_members)
+                        )
+                        viewer_updated = True
+                if not viewer_updated:
+                    ar_bindings.append(
+                        {
+                            "role": "roles/agentregistry.viewer",
+                            "members": sorted(reg_members),
+                        }
                     )
-                    if c_resp.status_code == 200:
-                        new_name = c_resp.json().get("name", "")
-                        if new_name:
-                            authed.post(
-                                f"{base}/{new_name}:publish",
-                                json={},
-                                timeout=5.0,
-                            )
+                ar_body: dict[str, Any] = {
+                    "policy": {"bindings": ar_bindings}
+                }
+                if ar_etag:
+                    ar_body["policy"]["etag"] = ar_etag
+                authed.post(
+                    f"{ar_base}/{registry_resource_name}:setIamPolicy",
+                    json=ar_body,
+                    timeout=8.0,
+                )
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.debug(
             "Discovery Engine skill share IAM update note for %s: %s",
@@ -544,12 +540,13 @@ class SkillWorkflowEngine:
             reg_row.published_at = now
         wf.registry_id = reg_id
 
-        # Stage 5: Share the Skill to the Gemini Enterprise App
+        # Stage 5: Share the Skill from the Agent Platform Skill Registry
         wf.current_stage = "SHARE_TO_APP"
         share_skill_in_discovery_engine(
             skill=skill,
             principals=sorted_principals,
             settings=self._settings,
+            registry_resource_name=reg_res_name,
         )
         skill.review_status = "APPROVED"
         skill.state = "ENABLED"
