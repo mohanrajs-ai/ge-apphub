@@ -147,6 +147,87 @@ def render_skill_instruction_for_engine(
     return parameterized.replace("{{engine_id}}", target_engine_id)
 
 
+_FEDERATED_GROUP_TO_ENGINE: dict[str, str] = {
+    "ge-finance-users": "finance-app-01",
+    "ge-hr-users": "hr-app-01",
+    "ge-marketing-users": "marketing-app-01",
+    "ge-ops-users": "ops-app-01",
+    "ge-sales-users": "sales-app-01",
+    "ge-service-desk-users": "service-desk-app-01",
+}
+
+
+def resolve_target_engines_from_groups(
+    session: orm.Session,
+    skill: db_models.GESkillRecord,
+    principals: list[str],
+) -> tuple[str, list[str]]:
+    """Resolves ('GLOBAL' | 'MULTI_APP' | 'SINGLE_APP', target_engine_ids).
+
+    Maps shared Cloud Identity / M365 group names from IAM proposals to their
+    bound Gemini Enterprise App engine_ids. If a global group (e.g.,
+    'global-skills@...', 'all-ge-apps-users@...', 'all-apps@...') is present,
+    all discovered GE Apps are targeted.
+    """
+    all_apps = [
+        r.engine_id
+        for r in session.query(db_models.GEApplicationRecord).all()
+        if r.engine_id
+    ]
+    bindings = (
+        session.query(db_models.AppGroupBindingRecord)
+        .filter_by(principal_type="group")
+        .all()
+    )
+    group_to_engines: dict[str, set[str]] = {}
+    for b in bindings:
+        grp = (b.principal_identifier or "").strip().lower()
+        if grp:
+            group_to_engines.setdefault(grp, set()).add(b.engine_id)
+
+    target_engines: set[str] = {skill.engine_id} if skill.engine_id else set()
+    is_global = False
+
+    for raw in principals:
+        clean = raw.strip().lower()
+        if clean.startswith("group:"):
+            grp_email = clean.split(":", 1)[1].strip()
+        elif "@" in clean and not clean.startswith("user:"):
+            grp_email = clean
+        else:
+            continue
+
+        local_part = grp_email.split("@", 1)[0]
+        if any(
+            kw in local_part
+            for kw in (
+                "global",
+                "all-ge-apps",
+                "all-apps",
+                "all-users",
+                "org-wide",
+            )
+        ):
+            is_global = True
+            break
+
+        if grp_email in group_to_engines:
+            target_engines.update(group_to_engines[grp_email])
+        elif local_part in _FEDERATED_GROUP_TO_ENGINE:
+            target_engines.add(_FEDERATED_GROUP_TO_ENGINE[local_part])
+        elif local_part.endswith("-users"):
+            candidate_eng = local_part[: -len("-users")]
+            for app_id in all_apps:
+                if app_id == candidate_eng or app_id.startswith(candidate_eng):
+                    target_engines.add(app_id)
+
+    if is_global and all_apps:
+        return "GLOBAL", sorted(set(all_apps) | target_engines)
+    sorted_targets = sorted(target_engines)
+    scope = "MULTI_APP" if len(sorted_targets) > 1 else "SINGLE_APP"
+    return scope, sorted_targets
+
+
 def publish_skill_to_agent_platform_registry(
     skill: db_models.GESkillRecord,
     settings: config.Settings,
@@ -239,6 +320,7 @@ def share_skill_in_discovery_engine(
     principals: list[str],
     settings: config.Settings,
     registry_resource_name: str = "",
+    target_engines: list[str] | None = None,
 ) -> bool:
     """Applies Stage 5 IAM sharing from Agent Platform Skill Registry & GE."""
     if settings.use_mock_data or not skill.resource_name:
@@ -249,6 +331,7 @@ def share_skill_in_discovery_engine(
         )
         authed = google_requests.AuthorizedSession(credentials)
         project = settings.gcp_project_id or "mohandemo"
+        location = settings.gcp_location or "global"
         authed.headers["x-goog-user-project"] = project
         base = "https://discoveryengine.googleapis.com/v1alpha"
 
@@ -313,6 +396,61 @@ def share_skill_in_discovery_engine(
         if etag:
             policy_body["policy"]["etag"] = etag
         authed.post(set_pol_url, json=policy_body, timeout=5.0)
+
+        for eng_id in target_engines or []:
+            if not eng_id or eng_id == skill.engine_id:
+                continue
+            agents_url = (
+                f"{base}/projects/{project}/locations/{location}/"
+                f"collections/default_collection/engines/{eng_id}/"
+                "assistants/default_assistant/agents"
+            )
+            list_resp = authed.get(agents_url, timeout=8.0)
+            if list_resp.status_code != 200:
+                continue
+            existing_agents = list_resp.json().get("agents") or []
+            matched = next(
+                (
+                    a
+                    for a in existing_agents
+                    if a.get("displayName") == skill.display_name
+                ),
+                None,
+            )
+            rendered_instruction = render_skill_instruction_for_engine(
+                skill.instruction, eng_id
+            )
+            if matched is None:
+                create_resp = authed.post(
+                    agents_url,
+                    json={
+                        "displayName": skill.display_name,
+                        "description": skill.description,
+                        "sharingConfig": {"scope": "ALL_USERS"},
+                        "skillAgentDefinition": {
+                            "instruction": rendered_instruction
+                        },
+                    },
+                    timeout=10.0,
+                )
+                target_ag_name = (
+                    str(create_resp.json().get("name") or "")
+                    if create_resp.status_code in (200, 201)
+                    else ""
+                )
+            else:
+                target_ag_name = str(matched.get("name") or "")
+            if target_ag_name:
+                authed.post(
+                    f"{base}/{target_ag_name}:publish",
+                    json={},
+                    timeout=8.0,
+                )
+                authed.patch(
+                    f"{base}/{target_ag_name}?updateMask=sharingConfig",
+                    json={"sharingConfig": {"scope": "ALL_USERS"}},
+                    timeout=5.0,
+                )
 
         if registry_resource_name:
             ar_base = "https://agentregistry.googleapis.com/v1alpha"
@@ -577,11 +715,17 @@ class SkillWorkflowEngine:
 
         # Stage 5: Share the Skill from the Agent Platform Skill Registry
         wf.current_stage = "SHARE_TO_APP"
+        _dist_scope, target_engines = resolve_target_engines_from_groups(
+            session=session,
+            skill=skill,
+            principals=sorted_principals,
+        )
         share_skill_in_discovery_engine(
             skill=skill,
             principals=sorted_principals,
             settings=self._settings,
             registry_resource_name=reg_res_name,
+            target_engines=target_engines,
         )
         skill.review_status = "APPROVED"
         skill.state = "ENABLED"
