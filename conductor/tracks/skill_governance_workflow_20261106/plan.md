@@ -1,7 +1,7 @@
 # Implementation Plan: Automated Skill Evaluation, InfoSec Governance & Publishing Workflow Microservice
 
 ## Phase 1: Database Schema & Standalone Workflow Microservice Foundation
-- [ ] Task: Define ORM & Pydantic Models for Workflows, Skill Registry, and Email Outbox
+- [~] Task: Define ORM & Pydantic Models for Workflows, Skill Registry, and Email Outbox
   - [ ] Write failing tests in `backend/tests/test_skill_workflow.py` verifying `SkillWorkflowRecord`, `SkillRegistryRecord`, and `WorkflowEmailRecord` persistence.
   - [ ] Implement SQLAlchemy models in `backend/app/db_models.py` and Pydantic schemas in `backend/app/models.py`.
 - [ ] Task: Create Standalone Skill Workflow Microservice Package (`skill_workflow_service/`)
