@@ -212,9 +212,6 @@ def build_google_oauth_authorize_url(
     clean_email = (email or "").strip().lower()
     if clean_email and "@" in clean_email:
         params["login_hint"] = clean_email
-        domain = clean_email.split("@", 1)[1].strip()
-        if domain:
-            params["hd"] = domain
     else:
         params["prompt"] = "select_account"
     query = urllib.parse.urlencode(params)

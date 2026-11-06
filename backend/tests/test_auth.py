@@ -340,7 +340,7 @@ def test_google_oauth_sso_redirect_and_callback_flow(monkeypatch) -> None:
     parsed = urllib.parse.urlparse(redirect_url)
     qs = urllib.parse.parse_qs(parsed.query)
     assert qs["login_hint"] == ["pradeepg@mohanrajs.demo.altostrat.com"]
-    assert qs["hd"] == ["mohanrajs.demo.altostrat.com"]
+    assert "hd" not in qs
     state_token = qs["state"][0]
 
     # Also test login without email (prompt=select_account)
