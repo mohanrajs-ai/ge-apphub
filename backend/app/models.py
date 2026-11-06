@@ -122,7 +122,64 @@ class SyncStatusResponse(pydantic.BaseModel):
     total_groups: int
     total_users: int
     total_memberships: int
+    total_skills: int = 0
+    pending_skills: int = 0
     last_run: SyncRunSummary | None = None
+
+
+class SkillIamProposal(pydantic.BaseModel):
+    """Represents a pending or active IAM share proposal on a GE skill."""
+
+    proposal_id: str
+    principal: str
+    role: str = "roles/discoveryengine.agentUser"
+    state: str = "ACTIVE"
+    create_time: str = ""
+    expire_time: str = ""
+
+
+class SkillSubfile(pydantic.BaseModel):
+    """Represents a file bundled in a Gemini Enterprise skill artifact."""
+
+    file_name: str
+    mime_type: str = "text/markdown"
+
+
+class DiscoveredSkill(pydantic.BaseModel):
+    """Represents a Gemini Enterprise skill and its review/sharing status."""
+
+    skill_id: str
+    resource_name: str
+    engine_id: str
+    app_display_name: str
+    display_name: str
+    description: str = ""
+    instruction: str = ""
+    gcs_uri: str = ""
+    owner_email: str = ""
+    state: str = "DISABLED"
+    sharing_scope: str = "RESTRICTED"
+    sharing_state: str = "PENDING"
+    has_active_iam_proposals: bool = False
+    review_status: str = "PENDING_REVIEW"
+    iam_proposals: list[SkillIamProposal] = pydantic.Field(
+        default_factory=list
+    )
+    shared_principals: list[str] = pydantic.Field(default_factory=list)
+    subfiles: list[SkillSubfile] = pydantic.Field(default_factory=list)
+    create_time: str = ""
+    update_time: str = ""
+    last_synced_at: str | None = None
+
+
+class SkillListResponse(pydantic.BaseModel):
+    """Represents the response payload for GET /api/v1/skills."""
+
+    items: list[DiscoveredSkill]
+    total: int
+    pending_review_count: int
+    approved_count: int
+    draft_count: int = 0
 
 
 class CloudIdentityGroupInfo(pydantic.BaseModel):

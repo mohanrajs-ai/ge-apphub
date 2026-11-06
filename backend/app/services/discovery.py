@@ -538,6 +538,253 @@ def get_mock_group_directory() -> dict[str, dict[str, Any]]:
     }
 
 
+def get_mock_skills() -> list[models.DiscoveredSkill]:
+    """Returns curated Gemini Enterprise skills for mock/demo mode."""
+    return [
+        models.DiscoveredSkill(
+            skill_id="service-desk-app-01:16453101121688192599",
+            resource_name=(
+                "projects/720923281941/locations/global/collections/"
+                "default_collection/engines/service-desk-app-01/assistants/"
+                "default_assistant/agents/16453101121688192599"
+            ),
+            engine_id="service-desk-app-01",
+            app_display_name="service-desk-app-01",
+            display_name="daily-morning-summary",
+            description=(
+                "Compiles a concise morning briefing synthesizing the day's "
+                "upcoming Outlook Calendar schedule, urgent or unread Outlook "
+                "emails, and priority Microsoft Teams mentions and action "
+                "items."
+            ),
+            instruction=(
+                "# Daily Morning Summary\n\nThis skill prepares a daily "
+                "executive-style morning briefing for the user by aggregating "
+                "upcoming schedule commitments, high-priority unread emails, "
+                "and critical Teams messages and mentions."
+            ),
+            gcs_uri=(
+                "gs://shared_default/ge_skill_agent_artifacts/"
+                "service-desk-app-01/daily-morning-summary/"
+            ),
+            owner_email="admin@mohanrajs.altostrat.com",
+            state="DISABLED",
+            sharing_scope="RESTRICTED",
+            sharing_state="PENDING",
+            has_active_iam_proposals=True,
+            review_status="PENDING_REVIEW",
+            iam_proposals=[
+                models.SkillIamProposal(
+                    proposal_id="8420372054855937333",
+                    principal="user:mohanraj@mohanrajs.altostrat.com",
+                    role="roles/discoveryengine.agentUser",
+                    state="ACTIVE",
+                    create_time="2026-11-02T12:59:45.647329Z",
+                    expire_time="2026-12-17T12:59:44.681804149Z",
+                )
+            ],
+            shared_principals=["user:admin@mohanrajs.altostrat.com"],
+            subfiles=[
+                models.SkillSubfile(
+                    file_name="SKILL.md",
+                    mime_type="text/markdown",
+                )
+            ],
+            create_time="2026-10-31T12:08:33.345419Z",
+            update_time="2026-10-31T12:08:33.345419Z",
+        )
+    ]
+
+
+def fetch_engine_skills(
+    project_id: str,
+    location: str,
+    engine_id: str,
+    app_display_name: str,
+) -> list[models.DiscoveredSkill]:
+    """Queries the Gemini Enterprise Skill/Agent API for an engine.
+
+    Fetches user-created skills (agents containing 'skillAgentDefinition'),
+    enriches each with :getAgentView, /iamProposals, and :getIamPolicy, and
+    computes its review_status ('PENDING_REVIEW', 'APPROVED', or 'DRAFT').
+
+    Args:
+        project_id: GCP Project ID.
+        location: Engine location (global, us, eu).
+        engine_id: Target Discovery Engine identifier.
+        app_display_name: Human-readable display name of the parent GE app.
+
+    Returns:
+        List of DiscoveredSkill instances for the engine.
+    """
+    endpoint = (
+        "discoveryengine.googleapis.com"
+        if location == "global"
+        else f"{location}-discoveryengine.googleapis.com"
+    )
+    agents_url = (
+        f"https://{endpoint}/v1alpha/projects/{project_id}/locations/"
+        f"{location}/collections/default_collection/engines/{engine_id}/"
+        "assistants/default_assistant/agents"
+    )
+    discovered_skills: list[models.DiscoveredSkill] = []
+    try:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        session = google_requests.AuthorizedSession(credentials)
+        session.headers["x-goog-user-project"] = project_id
+        resp = session.get(agents_url, timeout=8.0)
+        if resp.status_code != 200:
+            return []
+
+        for item in resp.json().get("agents") or []:
+            if "skillAgentDefinition" not in item:
+                continue
+            resource_name = str(item.get("name") or "").strip()
+            if not resource_name:
+                continue
+            raw_agent_id = resource_name.split("/")[-1]
+            skill_id = f"{engine_id}:{raw_agent_id}"
+            display_name = str(item.get("displayName") or raw_agent_id)
+            description = str(item.get("description") or "")
+            state = str(item.get("state") or "DISABLED").upper()
+            has_proposals = bool(item.get("hasActiveIamProposals", False))
+            sharing_scope = str(
+                (item.get("sharingConfig") or {}).get("scope") or "RESTRICTED"
+            ).upper()
+            skill_def = item.get("skillAgentDefinition") or {}
+            instruction = str(skill_def.get("instruction") or "")
+            gcs_uri = str(skill_def.get("gcsUri") or "")
+            create_time = str(item.get("createTime") or "")
+            update_time = str(item.get("updateTime") or "")
+
+            sharing_state = "PENDING" if has_proposals else "PRIVATE"
+            owner_email = ""
+            subfiles: list[models.SkillSubfile] = []
+
+            view_url = f"https://{endpoint}/v1alpha/{resource_name}:getAgentView"
+            view_resp = session.get(view_url, timeout=5.0)
+            if view_resp.status_code == 200:
+                view_data = view_resp.json().get("agentView") or {}
+                if view_data.get("agentSharingState"):
+                    sharing_state = str(
+                        view_data["agentSharingState"]
+                    ).upper()
+                owner_raw = (
+                    view_data.get("ownerUserPrincipal")
+                    or view_data.get("ownerDisplayName")
+                    or ""
+                )
+                owner_email = str(owner_raw).strip().lower()
+                skill_info = view_data.get("skillAgentInfo") or {}
+                if not instruction and skill_info.get("instruction"):
+                    instruction = str(skill_info["instruction"])
+                for sf in skill_info.get("subfiles") or []:
+                    subfiles.append(
+                        models.SkillSubfile(
+                            file_name=str(sf.get("fileName") or "SKILL.md"),
+                            mime_type=str(
+                                sf.get("mimeType") or "text/markdown"
+                            ),
+                        )
+                    )
+
+            iam_proposals: list[models.SkillIamProposal] = []
+            prop_url = f"https://{endpoint}/v1alpha/{resource_name}/iamProposals"
+            prop_resp = session.get(prop_url, timeout=5.0)
+            if prop_resp.status_code == 200:
+                for prop in prop_resp.json().get("agentIamProposals") or []:
+                    prop_name = str(prop.get("name") or "")
+                    prop_id = (
+                        prop_name.split("/")[-1] if prop_name else "proposal"
+                    )
+                    iam_proposals.append(
+                        models.SkillIamProposal(
+                            proposal_id=prop_id,
+                            principal=str(prop.get("principal") or "")
+                            .strip()
+                            .lower(),
+                            role=str(
+                                prop.get(
+                                    "role", "roles/discoveryengine.agentUser"
+                                )
+                            ),
+                            state=str(prop.get("state") or "ACTIVE").upper(),
+                            create_time=str(prop.get("createTime") or ""),
+                            expire_time=str(prop.get("expireTime") or ""),
+                        )
+                    )
+
+            shared_principals: set[str] = set()
+            pol_url = f"https://{endpoint}/v1alpha/{resource_name}:getIamPolicy"
+            pol_resp = session.get(pol_url, timeout=5.0)
+            if pol_resp.status_code == 200:
+                for binding in pol_resp.json().get("bindings") or []:
+                    b_role = str(binding.get("role") or "")
+                    for member in binding.get("members") or []:
+                        clean_mem = str(member).strip().lower()
+                        if clean_mem:
+                            shared_principals.add(clean_mem)
+                        if (
+                            not owner_email
+                            and "agentowner" in b_role.lower()
+                            and ":" in clean_mem
+                        ):
+                            owner_email = clean_mem.split(":", 1)[1].strip()
+
+            active_prop = any(p.state == "ACTIVE" for p in iam_proposals)
+            if (
+                has_proposals
+                or sharing_state == "PENDING"
+                or active_prop
+            ):
+                review_status = "PENDING_REVIEW"
+            elif state == "ENABLED":
+                review_status = "APPROVED"
+            else:
+                review_status = "DRAFT"
+
+            if not subfiles:
+                subfiles = [
+                    models.SkillSubfile(
+                        file_name="SKILL.md",
+                        mime_type="text/markdown",
+                    )
+                ]
+
+            discovered_skills.append(
+                models.DiscoveredSkill(
+                    skill_id=skill_id,
+                    resource_name=resource_name,
+                    engine_id=engine_id,
+                    app_display_name=app_display_name,
+                    display_name=display_name,
+                    description=description,
+                    instruction=instruction,
+                    gcs_uri=gcs_uri,
+                    owner_email=owner_email,
+                    state=state,
+                    sharing_scope=sharing_scope,
+                    sharing_state=sharing_state,
+                    has_active_iam_proposals=has_proposals,
+                    review_status=review_status,
+                    iam_proposals=iam_proposals,
+                    shared_principals=sorted(shared_principals),
+                    subfiles=subfiles,
+                    create_time=create_time,
+                    update_time=update_time,
+                )
+            )
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.debug(
+            "Skill discovery failed for engine %s (%s).",
+            engine_id,
+            exc,
+        )
+    return discovered_skills
+
+
 class DiscoveryEngineService:
     """Fetches Gemini Enterprise applications via Discovery Engine API."""
 
@@ -552,6 +799,10 @@ class DiscoveryEngineService:
         group_membership_checker: (
             abc.Callable[[str, str, str], bool] | None
         ) = None,
+        skills_fetcher: (
+            abc.Callable[[str, str, str, str], list[models.DiscoveredSkill]]
+            | None
+        ) = None,
     ) -> None:
         """Initializes DiscoveryEngineService.
 
@@ -561,6 +812,7 @@ class DiscoveryEngineService:
             widget_url_resolver: Optional resolver for engine launch URLs.
             iam_policy_resolver: Optional resolver for engine IAM principals.
             group_membership_checker: Optional Cloud Identity group checker.
+            skills_fetcher: Optional fetcher for engine skills.
         """
         self._settings = settings
         self._client_factory = client_factory or _create_default_sdk_client
@@ -581,6 +833,12 @@ class DiscoveryEngineService:
         self._group_membership_checker = (
             group_membership_checker or check_cloud_identity_group_membership
         )
+        if skills_fetcher is not None:
+            self._skills_fetcher = skills_fetcher
+        elif client_factory is not None:
+            self._skills_fetcher = lambda *_args: []
+        else:
+            self._skills_fetcher = fetch_engine_skills
 
     def resolve_user_groups(
         self,
@@ -712,3 +970,32 @@ class DiscoveryEngineService:
                 exc,
             )
             return []
+
+    def list_skills(
+        self,
+        engines: list[models.DiscoveredEngine] | None = None,
+    ) -> list[models.DiscoveredSkill]:
+        """Lists Gemini Enterprise skills across all engines.
+
+        Args:
+            engines: Optional list of already-discovered engines.
+
+        Returns:
+            List of DiscoveredSkill objects.
+        """
+        if self._settings.use_mock_data:
+            return get_mock_skills()
+
+        active_engines = (
+            engines if engines is not None else self.list_engines()
+        )
+        all_skills: list[models.DiscoveredSkill] = []
+        for engine in active_engines:
+            engine_skills = self._skills_fetcher(
+                self._settings.gcp_project_id,
+                engine.location,
+                engine.engine_id,
+                engine.display_name,
+            )
+            all_skills.extend(engine_skills)
+        return all_skills

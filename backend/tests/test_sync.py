@@ -91,6 +91,14 @@ class _FakeDiscoveryService:
             ],
         }
 
+    def list_skills(
+        self,
+        engines: list[models.DiscoveredEngine] | None = None,
+    ) -> list[models.DiscoveredSkill]:
+        """Returns fake Gemini Enterprise skills including pending review."""
+        del engines
+        return discovery.get_mock_skills()
+
 
 def test_catalog_sync_service_populates_database(monkeypatch) -> None:
     """Verifies CatalogSyncService upserts apps, groups, and users."""
@@ -173,6 +181,165 @@ def test_sync_and_groups_api_endpoints(monkeypatch) -> None:
         groups_payload = groups_resp.json()
         assert groups_payload["total"] >= 2
         assert any(item["is_member"] for item in groups_payload["items"])
+
+        # Query synced skills and pending review filter
+        skills_resp = client.get(
+            "/api/v1/skills",
+            params={"review_status": "PENDING_REVIEW"},
+            headers={"X-Dev-User-Email": "mohanraj@mohanrajs.altostrat.com"},
+        )
+        assert skills_resp.status_code == 200
+        skills_payload = skills_resp.json()
+        assert skills_payload["pending_review_count"] >= 1
+        assert skills_payload["total"] >= 1
+        skill_id = skills_payload["items"][0]["skill_id"]
+
+        # Query single skill detail
+        detail_resp = client.get(
+            f"/api/v1/skills/{skill_id}",
+            headers={"X-Dev-User-Email": "mohanraj@mohanrajs.altostrat.com"},
+        )
+        assert detail_resp.status_code == 200
+        assert detail_resp.json()["display_name"] == "daily-morning-summary"
+
+        # 404 on unknown skill
+        missing_resp = client.get(
+            "/api/v1/skills/nonexistent",
+            headers={"X-Dev-User-Email": "mohanraj@mohanrajs.altostrat.com"},
+        )
+        assert missing_resp.status_code == 404
+
+
+def test_fetch_engine_skills_helper(monkeypatch) -> None:
+    """Verifies Gemini Enterprise Skill API discovery and review_status."""
+    class _FakeResp:
+        def __init__(self, status_code: int, data: dict[str, Any]) -> None:
+            self.status_code = status_code
+            self._data = data
+
+        def json(self) -> dict[str, Any]:
+            return self._data
+
+    agent_res = (
+        "projects/720923281941/locations/global/collections/"
+        "default_collection/engines/service-desk-app-01/assistants/"
+        "default_assistant/agents/16453101121688192599"
+    )
+
+    class _FakeSession:
+        def __init__(self, _creds: Any) -> None:
+            self.headers: dict[str, str] = {}
+
+        def get(self, url: str, timeout: float = 5.0) -> _FakeResp:
+            del timeout
+            if url.endswith("/assistants/default_assistant/agents"):
+                return _FakeResp(
+                    200,
+                    {
+                        "agents": [
+                            {
+                                "name": agent_res,
+                                "displayName": "daily-morning-summary",
+                                "description": "Morning briefing skill",
+                                "state": "DISABLED",
+                                "hasActiveIamProposals": True,
+                                "sharingConfig": {"scope": "RESTRICTED"},
+                                "skillAgentDefinition": {
+                                    "gcsUri": "gs://bucket/skill/",
+                                    "instruction": "# Morning Summary",
+                                },
+                                "createTime": "2026-10-31T12:08:33Z",
+                                "updateTime": "2026-10-31T12:08:33Z",
+                            },
+                            {
+                                "name": f"{agent_res}_deep",
+                                "displayName": "Deep Research",
+                                "managedAgentDefinition": {},
+                            },
+                        ]
+                    },
+                )
+            if url.endswith(":getAgentView"):
+                return _FakeResp(
+                    200,
+                    {
+                        "agentView": {
+                            "agentType": "SKILL_AGENT",
+                            "agentSharingState": "PENDING",
+                            "ownerUserPrincipal": (
+                                "admin@mohanrajs.altostrat.com"
+                            ),
+                            "skillAgentInfo": {
+                                "instruction": "# Morning Summary",
+                                "subfiles": [
+                                    {
+                                        "fileName": "SKILL.md",
+                                        "mimeType": "text/markdown",
+                                    }
+                                ],
+                            },
+                        }
+                    },
+                )
+            if url.endswith("/iamProposals"):
+                return _FakeResp(
+                    200,
+                    {
+                        "agentIamProposals": [
+                            {
+                                "name": f"{agent_res}/iamProposals/84203720",
+                                "principal": (
+                                    "user:mohanraj@mohanrajs.altostrat.com"
+                                ),
+                                "role": "roles/discoveryengine.agentUser",
+                                "state": "ACTIVE",
+                                "createTime": "2026-11-02T12:59:45Z",
+                                "expireTime": "2026-12-17T12:59:44Z",
+                            }
+                        ]
+                    },
+                )
+            if url.endswith(":getIamPolicy"):
+                return _FakeResp(
+                    200,
+                    {
+                        "bindings": [
+                            {
+                                "role": "roles/discoveryengine.agentOwner",
+                                "members": [
+                                    "user:admin@mohanrajs.altostrat.com"
+                                ],
+                            }
+                        ]
+                    },
+                )
+            return _FakeResp(404, {})
+
+    monkeypatch.setattr(
+        discovery.google.auth,
+        "default",
+        lambda **_kwargs: (object(), "mohandemo"),
+    )
+    monkeypatch.setattr(
+        discovery.google_requests,
+        "AuthorizedSession",
+        _FakeSession,
+    )
+    skills = discovery.fetch_engine_skills(
+        project_id="mohandemo",
+        location="global",
+        engine_id="service-desk-app-01",
+        app_display_name="service-desk-app-01",
+    )
+    assert len(skills) == 1
+    assert skills[0].display_name == "daily-morning-summary"
+    assert skills[0].review_status == "PENDING_REVIEW"
+    assert skills[0].owner_email == "admin@mohanrajs.altostrat.com"
+    assert len(skills[0].iam_proposals) == 1
+    assert (
+        skills[0].iam_proposals[0].principal
+        == "user:mohanraj@mohanrajs.altostrat.com"
+    )
 
 
 def test_catalog_sync_service_records_failure(monkeypatch) -> None:

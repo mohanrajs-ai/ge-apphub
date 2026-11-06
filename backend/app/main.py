@@ -18,6 +18,7 @@ from app import models
 from app.routers import apps
 from app.routers import auth as auth_router
 from app.routers import groups as groups_router
+from app.routers import skills as skills_router
 from app.routers import sync as sync_router
 from app.services import sync as sync_service
 
@@ -113,6 +114,7 @@ def create_app(
     application.include_router(auth_router.router)
     application.include_router(apps.router)
     application.include_router(groups_router.router)
+    application.include_router(skills_router.router)
     application.include_router(sync_router.router)
 
     resolved_dist = static_dir or DEFAULT_FRONTEND_DIST

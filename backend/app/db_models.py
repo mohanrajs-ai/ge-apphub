@@ -199,6 +199,82 @@ class AppGroupBindingRecord(Base):
     )
 
 
+class GESkillRecord(Base):
+    """Persisted Gemini Enterprise skill and share approval status."""
+
+    __tablename__ = "ge_skills"
+
+    id: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
+    skill_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    resource_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(512), unique=True, nullable=False
+    )
+    engine_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), index=True, nullable=False
+    )
+    app_display_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), default="", nullable=False
+    )
+    display_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), nullable=False
+    )
+    description: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    instruction: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    gcs_uri: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    owner_email: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", index=True, nullable=False
+    )
+    state: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="DISABLED", nullable=False
+    )
+    sharing_scope: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="RESTRICTED", nullable=False
+    )
+    sharing_state: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PENDING", nullable=False
+    )
+    has_active_iam_proposals: orm.Mapped[bool] = orm.mapped_column(
+        sqlalchemy.Boolean, default=False, nullable=False
+    )
+    review_status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64),
+        default="PENDING_REVIEW",
+        index=True,
+        nullable=False,
+    )
+    iam_proposals: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    shared_principals: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    subfiles: orm.Mapped[list[dict[str, str]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    create_time: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), default="", nullable=False
+    )
+    update_time: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), default="", nullable=False
+    )
+    last_synced_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
+        nullable=False,
+    )
+
+
 class SyncRunRecord(Base):
     """Audit log record of a scheduled or manual synchronization run."""
 

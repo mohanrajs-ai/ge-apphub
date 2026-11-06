@@ -299,6 +299,12 @@ class CatalogSyncService:
                     )
                     memberships_count += 1
 
+            self._sync_skills(
+                session=session,
+                engines=engines,
+                now=now,
+            )
+
             run_record.status = "completed"
             run_record.apps_synced = apps_count
             run_record.groups_synced = groups_count
@@ -319,6 +325,72 @@ class CatalogSyncService:
             LOGGER.warning("Scheduled catalog sync failed: %s", exc)
 
         return models.SyncRunSummary(**run_record.to_summary_dict())
+
+    def _sync_skills(
+        self,
+        session: orm.Session,
+        engines: list[models.DiscoveredEngine],
+        now: datetime.datetime,
+    ) -> int:
+        """Queries the Gemini Enterprise Skill API and upserts GESkillRecord."""
+        if not hasattr(self._discovery, "list_skills"):
+            return 0
+        skills = self._discovery.list_skills(engines=engines)
+        synced_skill_ids: set[str] = set()
+        for skill in skills:
+            synced_skill_ids.add(skill.skill_id)
+            proposals_json = [p.model_dump() for p in skill.iam_proposals]
+            subfiles_json = [sf.model_dump() for sf in skill.subfiles]
+            row = (
+                session.query(db_models.GESkillRecord)
+                .filter_by(skill_id=skill.skill_id)
+                .one_or_none()
+            )
+            if row is None:
+                row = db_models.GESkillRecord(
+                    skill_id=skill.skill_id,
+                    resource_name=skill.resource_name,
+                    engine_id=skill.engine_id,
+                    app_display_name=skill.app_display_name,
+                    display_name=skill.display_name,
+                    description=skill.description,
+                    instruction=skill.instruction,
+                    gcs_uri=skill.gcs_uri,
+                    owner_email=skill.owner_email,
+                    state=skill.state,
+                    sharing_scope=skill.sharing_scope,
+                    sharing_state=skill.sharing_state,
+                    has_active_iam_proposals=skill.has_active_iam_proposals,
+                    review_status=skill.review_status,
+                    iam_proposals=proposals_json,
+                    shared_principals=list(skill.shared_principals),
+                    subfiles=subfiles_json,
+                    create_time=skill.create_time,
+                    update_time=skill.update_time,
+                    last_synced_at=now,
+                )
+                session.add(row)
+            else:
+                row.resource_name = skill.resource_name
+                row.engine_id = skill.engine_id
+                row.app_display_name = skill.app_display_name
+                row.display_name = skill.display_name
+                row.description = skill.description
+                row.instruction = skill.instruction
+                row.gcs_uri = skill.gcs_uri
+                row.owner_email = skill.owner_email
+                row.state = skill.state
+                row.sharing_scope = skill.sharing_scope
+                row.sharing_state = skill.sharing_state
+                row.has_active_iam_proposals = skill.has_active_iam_proposals
+                row.review_status = skill.review_status
+                row.iam_proposals = proposals_json
+                row.shared_principals = list(skill.shared_principals)
+                row.subfiles = subfiles_json
+                row.create_time = skill.create_time
+                row.update_time = skill.update_time
+                row.last_synced_at = now
+        return len(skills)
 
     def _ensure_user_record(
         self,
@@ -374,6 +446,12 @@ def get_sync_status(
     total_memberships = session.query(
         db_models.UserGroupMembershipRecord
     ).count()
+    total_skills = session.query(db_models.GESkillRecord).count()
+    pending_skills = (
+        session.query(db_models.GESkillRecord)
+        .filter_by(review_status="PENDING_REVIEW")
+        .count()
+    )
     last_run_row = (
         session.query(db_models.SyncRunRecord)
         .order_by(db_models.SyncRunRecord.id.desc())
@@ -392,8 +470,127 @@ def get_sync_status(
         total_groups=total_groups,
         total_users=total_users,
         total_memberships=total_memberships,
+        total_skills=total_skills,
+        pending_skills=pending_skills,
         last_run=last_run,
     )
+
+
+def _skill_record_to_model(
+    row: db_models.GESkillRecord,
+) -> models.DiscoveredSkill:
+    """Converts a persisted GESkillRecord ORM row into a DiscoveredSkill."""
+    proposals = [
+        models.SkillIamProposal(**p)
+        for p in (row.iam_proposals or [])
+        if isinstance(p, dict)
+    ]
+    subfiles = [
+        models.SkillSubfile(**sf)
+        for sf in (row.subfiles or [])
+        if isinstance(sf, dict)
+    ]
+    return models.DiscoveredSkill(
+        skill_id=row.skill_id,
+        resource_name=row.resource_name,
+        engine_id=row.engine_id,
+        app_display_name=row.app_display_name or row.engine_id,
+        display_name=row.display_name,
+        description=row.description,
+        instruction=row.instruction,
+        gcs_uri=row.gcs_uri,
+        owner_email=row.owner_email,
+        state=row.state,
+        sharing_scope=row.sharing_scope,
+        sharing_state=row.sharing_state,
+        has_active_iam_proposals=row.has_active_iam_proposals,
+        review_status=row.review_status,
+        iam_proposals=proposals,
+        shared_principals=list(row.shared_principals or []),
+        subfiles=subfiles,
+        create_time=row.create_time,
+        update_time=row.update_time,
+        last_synced_at=(
+            row.last_synced_at.isoformat() if row.last_synced_at else None
+        ),
+    )
+
+
+def list_synced_skills(
+    session: orm.Session,
+    review_status: str | None = None,
+    engine_id: str | None = None,
+    q: str | None = None,
+) -> models.SkillListResponse:
+    """Queries synced Gemini Enterprise skills and status counts from DB.
+
+    Args:
+        session: Active SQLAlchemy database session.
+        review_status: Optional filter ('PENDING_REVIEW', 'APPROVED', 'DRAFT').
+        engine_id: Optional GE engine_id filter.
+        q: Optional search query string.
+
+    Returns:
+        SkillListResponse with matching skills and aggregate status counts.
+    """
+    all_rows = (
+        session.query(db_models.GESkillRecord)
+        .order_by(db_models.GESkillRecord.display_name.asc())
+        .all()
+    )
+    pending_count = sum(
+        1 for r in all_rows if r.review_status == "PENDING_REVIEW"
+    )
+    approved_count = sum(1 for r in all_rows if r.review_status == "APPROVED")
+    draft_count = sum(1 for r in all_rows if r.review_status == "DRAFT")
+
+    status_filter = (review_status or "").strip().upper()
+    engine_filter = (engine_id or "").strip().lower()
+    needle = (q or "").strip().lower()
+
+    filtered_items: list[models.DiscoveredSkill] = []
+    for row in all_rows:
+        if status_filter and status_filter != "ALL":
+            if row.review_status.upper() != status_filter:
+                continue
+        if engine_filter and row.engine_id.lower() != engine_filter:
+            continue
+        if needle:
+            searchable = " ".join(
+                [
+                    row.display_name,
+                    row.description,
+                    row.engine_id,
+                    row.app_display_name,
+                    row.owner_email,
+                ]
+            ).lower()
+            if needle not in searchable:
+                continue
+        filtered_items.append(_skill_record_to_model(row))
+
+    return models.SkillListResponse(
+        items=filtered_items,
+        total=len(filtered_items),
+        pending_review_count=pending_count,
+        approved_count=approved_count,
+        draft_count=draft_count,
+    )
+
+
+def get_synced_skill(
+    session: orm.Session,
+    skill_id: str,
+) -> models.DiscoveredSkill | None:
+    """Retrieves a single synced GE skill by skill_id."""
+    row = (
+        session.query(db_models.GESkillRecord)
+        .filter_by(skill_id=skill_id)
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    return _skill_record_to_model(row)
 
 
 def list_synced_groups(

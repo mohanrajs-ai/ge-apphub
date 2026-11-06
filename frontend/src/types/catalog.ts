@@ -72,6 +72,8 @@ export interface SyncRunSummary {
   completed_at?: string | null;
 }
 
+export type PortalSection = 'apps' | 'skills' | 'agents';
+
 export interface SyncStatusResponse {
   sync_enabled: boolean;
   sync_interval_seconds: number;
@@ -80,5 +82,60 @@ export interface SyncStatusResponse {
   total_groups: number;
   total_users: number;
   total_memberships: number;
+  total_skills?: number;
+  pending_skills?: number;
   last_run?: SyncRunSummary | null;
+}
+
+export interface SkillIamProposal {
+  proposal_id: string;
+  principal: string;
+  role: string;
+  state: string;
+  create_time: string;
+  expire_time: string;
+}
+
+export interface SkillSubfile {
+  file_name: string;
+  mime_type: string;
+}
+
+export interface DiscoveredSkill {
+  skill_id: string;
+  resource_name: string;
+  engine_id: string;
+  app_display_name: string;
+  display_name: string;
+  description: string;
+  instruction: string;
+  gcs_uri: string;
+  owner_email: string;
+  state: string;
+  sharing_scope: string;
+  sharing_state: string;
+  has_active_iam_proposals: boolean;
+  review_status: 'PENDING_REVIEW' | 'APPROVED' | 'DRAFT' | string;
+  iam_proposals: SkillIamProposal[];
+  shared_principals: string[];
+  subfiles: SkillSubfile[];
+  create_time: string;
+  update_time: string;
+  last_synced_at?: string | null;
+}
+
+export interface SkillListResponse {
+  items: DiscoveredSkill[];
+  total: number;
+  pending_review_count: number;
+  approved_count: number;
+  draft_count: number;
+}
+
+export interface SkillsQueryParams {
+  devRole?: string;
+  authToken?: string;
+  reviewStatus?: string;
+  engineId?: string;
+  q?: string;
 }

@@ -3,12 +3,13 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, Bot, RefreshCw } from 'lucide-react';
 import {
   buildGoogleSsoLoginUrl,
   fetchApps,
   fetchAuthConfig,
   fetchCurrentUser,
+  fetchSkills,
   fetchSyncStatus,
   loginWithEmail,
   logoutUser,
@@ -18,9 +19,13 @@ import { CatalogGrid } from './components/CatalogGrid';
 import { Header } from './components/Header';
 import { LoginScreen } from './components/LoginScreen';
 import { SearchFilterBar } from './components/SearchFilterBar';
+import { Sidebar } from './components/Sidebar';
+import { SkillsSection } from './components/SkillsSection';
 import { ThemeProvider } from './context/ThemeContext';
 import {
   CatalogApplication,
+  DiscoveredSkill,
+  PortalSection,
   SuggestedUser,
   SyncStatusResponse,
   UserContext,
@@ -95,7 +100,11 @@ export function App(): React.ReactElement {
     return params.get('auth_error');
   });
   const [user, setUser] = useState<UserContext | null>(null);
+  const [activeSection, setActiveSection] = useState<PortalSection>('apps');
   const [apps, setApps] = useState<CatalogApplication[]>([]);
+  const [skills, setSkills] = useState<DiscoveredSkill[]>([]);
+  const [pendingSkillsCount, setPendingSkillsCount] = useState<number>(0);
+  const [approvedSkillsCount, setApprovedSkillsCount] = useState<number>(0);
   const [categories, setCategories] = useState<string[]>([]);
   const [departments, setDepartments] = useState<string[]>([]);
   const [groups, setGroups] = useState<string[]>([]);
@@ -142,6 +151,15 @@ export function App(): React.ReactElement {
         setCategories(catalogRes.categories);
         setDepartments(catalogRes.departments);
         setGroups(catalogRes.groups ?? userRes.groups ?? []);
+        void fetchSkills({ devRole: role, authToken: token })
+          .then((skillsRes) => {
+            if (skillsRes && Array.isArray(skillsRes.items)) {
+              setSkills(skillsRes.items);
+              setPendingSkillsCount(skillsRes.pending_review_count ?? 0);
+              setApprovedSkillsCount(skillsRes.approved_count ?? 0);
+            }
+          })
+          .catch(() => null);
         void fetchSyncStatus()
           .then((st) => setSyncStatus(st))
           .catch(() => null);
@@ -272,70 +290,113 @@ export function App(): React.ReactElement {
           />
 
           <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-                Application Marketplace
-              </h2>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
-                Browse, filter, and launch Gemini Enterprise agents and search
-                applications authorized for your Cloud Identity groups.
-              </p>
-            </div>
+            <div className="flex flex-col gap-8 lg:flex-row lg:items-start">
+              <Sidebar
+                activeSection={activeSection}
+                onSelectSection={setActiveSection}
+                appsCount={apps.length}
+                skillsCount={skills.length}
+                pendingSkillsCount={pendingSkillsCount}
+              />
 
-            {error && (
-              <div
-                role="alert"
-                className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200"
-              >
-                <div className="flex items-center gap-3">
-                  <AlertCircle
-                    className="h-5 w-5 shrink-0"
-                    aria-hidden="true"
-                  />
-                  <div>
-                    <p className="font-semibold">
-                      Unable to load application catalog
-                    </p>
-                    <p className="text-xs opacity-90">{error}</p>
+              <div className="min-w-0 flex-1">
+                {error && (
+                  <div
+                    role="alert"
+                    className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-red-200 bg-red-50 px-5 py-4 text-sm text-red-800 dark:border-red-900/60 dark:bg-red-950/50 dark:text-red-200"
+                  >
+                    <div className="flex items-center gap-3">
+                      <AlertCircle
+                        className="h-5 w-5 shrink-0"
+                        aria-hidden="true"
+                      />
+                      <div>
+                        <p className="font-semibold">
+                          Unable to load application catalog
+                        </p>
+                        <p className="text-xs opacity-90">{error}</p>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void loadCatalogData(activeDevRole, authToken)
+                      }
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700"
+                    >
+                      <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                      Retry
+                    </button>
                   </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => void loadCatalogData(activeDevRole, authToken)}
-                  className="inline-flex items-center gap-1.5 rounded-xl bg-red-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-red-700"
-                >
-                  <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-                  Retry
-                </button>
+                )}
+
+                {activeSection === 'apps' && (
+                  <>
+                    <div className="mb-6">
+                      <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                        Application Marketplace
+                      </h2>
+                      <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+                        Browse, filter, and launch Gemini Enterprise agents and
+                        search applications authorized for your Cloud Identity
+                        groups.
+                      </p>
+                    </div>
+
+                    <SearchFilterBar
+                      searchQuery={searchQuery}
+                      selectedCategory={selectedCategory}
+                      selectedDepartment={selectedDepartment}
+                      selectedTag={selectedTag}
+                      selectedGroup={selectedGroup}
+                      categories={categories}
+                      departments={departments}
+                      groups={groups}
+                      totalCount={apps.length}
+                      filteredCount={filteredApps.length}
+                      onSearchChange={setSearchQuery}
+                      onCategoryChange={setSelectedCategory}
+                      onDepartmentChange={setSelectedDepartment}
+                      onGroupChange={setSelectedGroup}
+                      onClearFilters={handleClearFilters}
+                    />
+
+                    <CatalogGrid
+                      apps={filteredApps}
+                      loading={loading}
+                      onResetFilters={handleClearFilters}
+                      onSelectTag={(tag) =>
+                        setSelectedTag((prev) => (prev === tag ? '' : tag))
+                      }
+                    />
+                  </>
+                )}
+
+                {activeSection === 'skills' && (
+                  <SkillsSection
+                    skills={skills}
+                    pendingReviewCount={pendingSkillsCount}
+                    approvedCount={approvedSkillsCount}
+                    loading={loading}
+                  />
+                )}
+
+                {activeSection === 'agents' && (
+                  <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-16 text-center shadow-sm dark:border-slate-800 dark:bg-slate-900">
+                    <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/20 dark:text-indigo-300">
+                      <Bot className="h-7 w-7" aria-hidden="true" />
+                    </div>
+                    <h2 className="mt-4 text-xl font-bold text-slate-900 dark:text-white">
+                      Agents Catalog — Coming Soon
+                    </h2>
+                    <p className="mx-auto mt-2 max-w-md text-sm text-slate-600 dark:text-slate-400">
+                      Enterprise ADK and A2A agent registration, discovery, and
+                      governance will be added in an upcoming release.
+                    </p>
+                  </div>
+                )}
               </div>
-            )}
-
-            <SearchFilterBar
-              searchQuery={searchQuery}
-              selectedCategory={selectedCategory}
-              selectedDepartment={selectedDepartment}
-              selectedTag={selectedTag}
-              selectedGroup={selectedGroup}
-              categories={categories}
-              departments={departments}
-              groups={groups}
-              totalCount={apps.length}
-              filteredCount={filteredApps.length}
-              onSearchChange={setSearchQuery}
-              onCategoryChange={setSelectedCategory}
-              onDepartmentChange={setSelectedDepartment}
-              onGroupChange={setSelectedGroup}
-              onClearFilters={handleClearFilters}
-            />
-
-            <CatalogGrid
-              apps={filteredApps}
-              loading={loading}
-              onResetFilters={handleClearFilters}
-              onSelectTag={(tag) =>
-                setSelectedTag((prev) => (prev === tag ? '' : tag))
-              }
-            />
+            </div>
           </main>
         </div>
       )}

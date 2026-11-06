@@ -7,6 +7,8 @@ import {
   AuthConfigResponse,
   CatalogResponse,
   LoginResponse,
+  SkillListResponse,
+  SkillsQueryParams,
   SyncRunSummary,
   SyncStatusResponse,
   UserContext,
@@ -168,5 +170,34 @@ export async function triggerSync(): Promise<SyncRunSummary> {
     throw new Error(`Failed to trigger sync: HTTP ${response.status}`);
   }
   const data: SyncRunSummary = await response.json();
+  return data;
+}
+
+/**
+ * Fetches synced Gemini Enterprise skills and share approval status from /api/v1/skills.
+ */
+export async function fetchSkills(
+  params: SkillsQueryParams = {},
+): Promise<SkillListResponse> {
+  const searchParams = new URLSearchParams();
+  if (params.reviewStatus && params.reviewStatus !== 'ALL') {
+    searchParams.set('review_status', params.reviewStatus);
+  }
+  if (params.engineId) {
+    searchParams.set('engine_id', params.engineId);
+  }
+  if (params.q) {
+    searchParams.set('q', params.q);
+  }
+  const queryString = searchParams.toString();
+  const url = queryString ? `/api/v1/skills?${queryString}` : '/api/v1/skills';
+
+  const response = await fetch(url, {
+    headers: buildHeaders(params.devRole, params.authToken),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch skills: HTTP ${response.status}`);
+  }
+  const data: SkillListResponse = await response.json();
   return data;
 }
