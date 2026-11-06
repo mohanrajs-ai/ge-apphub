@@ -247,32 +247,46 @@ def share_skill_in_discovery_engine(
             json={},
             timeout=5.0,
         )
+        authed.patch(
+            f"{base}/{skill.resource_name}?updateMask=sharingConfig",
+            json={"sharingConfig": {"scope": "ALL_USERS"}},
+            timeout=5.0,
+        )
 
         pol_url = f"{base}/{skill.resource_name}:getIamPolicy"
         pol_resp = authed.get(pol_url, timeout=5.0)
         bindings: list[dict[str, Any]] = []
         etag = ""
+        owners: set[str] = set()
         if pol_resp.status_code == 200:
             pol_json = pol_resp.json()
             bindings = list(pol_json.get("bindings") or [])
             etag = str(pol_json.get("etag") or "")
+            for b in bindings:
+                if b.get("role") == "roles/discoveryengine.agentOwner":
+                    owners.update(b.get("members") or [])
 
         user_members = [
             p if ":" in p else f"user:{p}"
             for p in principals
             if p and not p.startswith("group:")
         ]
+        de_members = (
+            set(user_members) | {"domain:mohanrajs.altostrat.com"}
+        ) - owners
         updated_role = False
         for b in bindings:
             if b.get("role") == "roles/discoveryengine.agentUser":
-                merged = sorted(set(b.get("members") or []).union(user_members))
+                merged = sorted(
+                    (set(b.get("members") or []) | de_members) - owners
+                )
                 b["members"] = merged
                 updated_role = True
-        if not updated_role and user_members:
+        if not updated_role and de_members:
             bindings.append(
                 {
                     "role": "roles/discoveryengine.agentUser",
-                    "members": sorted(set(user_members)),
+                    "members": sorted(de_members),
                 }
             )
         set_pol_url = f"{base}/{skill.resource_name}:setIamPolicy"
