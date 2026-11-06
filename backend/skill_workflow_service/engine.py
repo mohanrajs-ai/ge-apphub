@@ -129,6 +129,24 @@ def send_infosec_approval_email(
     return record
 
 
+def parameterize_skill_instruction(instruction: str) -> str:
+    """Replaces hardcoded Discovery Engine IDs with {{engine_id}} template."""
+    if not instruction:
+        return ""
+    return re.sub(r"/engines/[^/\s`]+/", "/engines/{{engine_id}}/", instruction)
+
+
+def render_skill_instruction_for_engine(
+    instruction: str,
+    target_engine_id: str,
+) -> str:
+    """Renders a parameterized SKILL.md instruction for a target engine_id."""
+    if not instruction:
+        return ""
+    parameterized = parameterize_skill_instruction(instruction)
+    return parameterized.replace("{{engine_id}}", target_engine_id)
+
+
 def publish_skill_to_agent_platform_registry(
     skill: db_models.GESkillRecord,
     settings: config.Settings,
@@ -166,7 +184,8 @@ def publish_skill_to_agent_platform_registry(
                 str(data.get("name") or default_res),
             )
 
-        instruction = skill.instruction or f"# {skill.display_name}\n"
+        raw_instruction = skill.instruction or f"# {skill.display_name}\n"
+        instruction = parameterize_skill_instruction(raw_instruction)
         desc_clean = (
             (skill.description or skill.display_name).replace("\n", " ").strip()
         )
@@ -525,6 +544,7 @@ class SkillWorkflowEngine:
             .filter_by(skill_id=skill.skill_id)
             .one_or_none()
         )
+        param_instruction = parameterize_skill_instruction(skill.instruction)
         if reg_row is None:
             reg_row = db_models.SkillRegistryRecord(
                 registry_id=reg_id,
@@ -534,7 +554,7 @@ class SkillWorkflowEngine:
                 app_display_name=skill.app_display_name or skill.engine_id,
                 display_name=skill.display_name,
                 description=skill.description,
-                instruction=skill.instruction,
+                instruction=param_instruction,
                 version="1.0.0",
                 owner_email=skill.owner_email,
                 eval_score=wf.eval_score,
@@ -547,6 +567,7 @@ class SkillWorkflowEngine:
         else:
             reg_row.registry_id = reg_id
             reg_row.resource_name = reg_res_name
+            reg_row.instruction = param_instruction
             reg_row.approved_by = clean_approver
             reg_row.eval_score = wf.eval_score
             reg_row.infosec_risk_level = wf.infosec_risk_level
