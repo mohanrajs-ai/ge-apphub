@@ -107,6 +107,19 @@ export interface SkillWorkflowCheck {
   detail: string;
 }
 
+export interface SkillTokenOptimization {
+  discovery_tokens: number;
+  instruction_tokens: number;
+  total_tokens: number;
+  optimized_instruction_tokens: number;
+  optimized_total_tokens: number;
+  tokens_saved: number;
+  reduction_pct: number;
+  duplicate_uri_count: number;
+  efficiency_grade: string;
+  recommendations?: string[];
+}
+
 export interface SkillWorkflowItem {
   workflow_id: string;
   skill_id: string;
@@ -133,6 +146,7 @@ export interface SkillWorkflowItem {
     verdict?: string;
     summary?: string;
     checks?: SkillWorkflowCheck[];
+    token_optimization?: SkillTokenOptimization;
   };
   infosec_risk_level: string;
   infosec_status: string;

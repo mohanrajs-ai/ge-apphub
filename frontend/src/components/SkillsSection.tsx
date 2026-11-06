@@ -152,6 +152,23 @@ function WorkflowStepper({
           </div>
         ))}
       </div>
+
+      {workflow.eval_report?.token_optimization && (
+        <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-200/70 bg-indigo-50/60 px-3 py-1.5 text-[11px] text-indigo-950 dark:border-indigo-900/50 dark:bg-indigo-950/30 dark:text-indigo-200">
+          <span className="font-semibold">
+            ⚡ Token Optimization (Grade{' '}
+            {workflow.eval_report.token_optimization.efficiency_grade}):
+          </span>
+          <span className="font-mono">
+            {workflow.eval_report.token_optimization.total_tokens} →{' '}
+            {workflow.eval_report.token_optimization.optimized_total_tokens}{' '}
+            tokens (-{workflow.eval_report.token_optimization.tokens_saved}{' '}
+            tokens / {workflow.eval_report.token_optimization.reduction_pct}%
+            saved • Discovery:{' '}
+            {workflow.eval_report.token_optimization.discovery_tokens} tokens)
+          </span>
+        </div>
+      )}
     </div>
   );
 }
@@ -787,6 +804,90 @@ export function SkillsSection({
 
             <div className="space-y-5 overflow-y-auto p-6">
               <WorkflowStepper workflow={selectedSkill.workflow} />
+
+              {selectedSkill.workflow?.eval_report?.token_optimization && (
+                <div className="rounded-xl border border-indigo-200 bg-indigo-50/50 p-4 text-xs dark:border-indigo-900/60 dark:bg-indigo-950/30">
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <h4 className="font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                      Stage 1 Token Optimization Analysis
+                    </h4>
+                    <span className="rounded-full bg-indigo-600 px-2.5 py-0.5 font-mono text-[11px] font-bold text-white">
+                      Grade{' '}
+                      {
+                        selectedSkill.workflow.eval_report.token_optimization
+                          .efficiency_grade
+                      }{' '}
+                      • -
+                      {
+                        selectedSkill.workflow.eval_report.token_optimization
+                          .reduction_pct
+                      }
+                      % Tokens
+                    </span>
+                  </div>
+                  <div className="grid gap-2.5 sm:grid-cols-4">
+                    <div className="rounded-lg bg-white p-2.5 shadow-2xs dark:bg-slate-900">
+                      <p className="text-[11px] text-slate-400">
+                        Discovery Router
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-bold text-slate-900 dark:text-white">
+                        {
+                          selectedSkill.workflow.eval_report.token_optimization
+                            .discovery_tokens
+                        }{' '}
+                        tok
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-2xs dark:bg-slate-900">
+                      <p className="text-[11px] text-slate-400">
+                        Raw SKILL.md
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-bold text-slate-900 dark:text-white">
+                        {
+                          selectedSkill.workflow.eval_report.token_optimization
+                            .total_tokens
+                        }{' '}
+                        tok
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-2xs dark:bg-slate-900">
+                      <p className="text-[11px] text-slate-400">
+                        Optimized Total
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        {
+                          selectedSkill.workflow.eval_report.token_optimization
+                            .optimized_total_tokens
+                        }{' '}
+                        tok
+                      </p>
+                    </div>
+                    <div className="rounded-lg bg-white p-2.5 shadow-2xs dark:bg-slate-900">
+                      <p className="text-[11px] text-slate-400">
+                        Context Saved
+                      </p>
+                      <p className="mt-0.5 font-mono text-sm font-bold text-indigo-600 dark:text-indigo-400">
+                        -
+                        {
+                          selectedSkill.workflow.eval_report.token_optimization
+                            .tokens_saved
+                        }{' '}
+                        tok
+                      </p>
+                    </div>
+                  </div>
+                  {(
+                    selectedSkill.workflow.eval_report.token_optimization
+                      .recommendations ?? []
+                  ).length > 0 && (
+                    <ul className="mt-3 list-disc space-y-1 pl-4 text-[11px] text-slate-700 dark:text-slate-300">
+                      {selectedSkill.workflow.eval_report.token_optimization.recommendations?.map(
+                        (rec) => <li key={rec}>{rec}</li>,
+                      )}
+                    </ul>
+                  )}
+                </div>
+              )}
 
               <div className="grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4 text-xs sm:grid-cols-2 dark:border-slate-800 dark:bg-slate-950">
                 <div>
