@@ -12,6 +12,7 @@ from app import db_models
 from app import models
 from app.services import discovery
 from app.services import firestore as firestore_mod
+from skill_workflow_service import engine as wf_engine
 
 LOGGER = logging.getLogger(__name__)
 DEFAULT_CANDIDATE_USERS: tuple[str, ...] = (
@@ -371,6 +372,15 @@ class CatalogSyncService:
                 )
                 session.add(row)
             else:
+                existing_wf = (
+                    session.query(db_models.SkillWorkflowRecord)
+                    .filter_by(skill_id=skill.skill_id)
+                    .one_or_none()
+                )
+                already_approved = (
+                    existing_wf is not None
+                    and existing_wf.approval_status == "APPROVED"
+                )
                 row.resource_name = skill.resource_name
                 row.engine_id = skill.engine_id
                 row.app_display_name = skill.app_display_name
@@ -379,17 +389,29 @@ class CatalogSyncService:
                 row.instruction = skill.instruction
                 row.gcs_uri = skill.gcs_uri
                 row.owner_email = skill.owner_email
-                row.state = skill.state
-                row.sharing_scope = skill.sharing_scope
-                row.sharing_state = skill.sharing_state
-                row.has_active_iam_proposals = skill.has_active_iam_proposals
-                row.review_status = skill.review_status
-                row.iam_proposals = proposals_json
-                row.shared_principals = list(skill.shared_principals)
+                if not already_approved:
+                    row.state = skill.state
+                    row.sharing_scope = skill.sharing_scope
+                    row.sharing_state = skill.sharing_state
+                    row.has_active_iam_proposals = (
+                        skill.has_active_iam_proposals
+                    )
+                    row.review_status = skill.review_status
+                    row.iam_proposals = proposals_json
+                    row.shared_principals = list(skill.shared_principals)
                 row.subfiles = subfiles_json
                 row.create_time = skill.create_time
                 row.update_time = skill.update_time
                 row.last_synced_at = now
+            session.flush()
+            if row.review_status == "PENDING_REVIEW":
+                workflow_svc = wf_engine.SkillWorkflowEngine(
+                    settings=self._settings
+                )
+                workflow_svc.start_or_run_workflow(
+                    session=session,
+                    skill_id=row.skill_id,
+                )
         return len(skills)
 
     def _ensure_user_record(
@@ -478,6 +500,7 @@ def get_sync_status(
 
 def _skill_record_to_model(
     row: db_models.GESkillRecord,
+    workflow_row: db_models.SkillWorkflowRecord | None = None,
 ) -> models.DiscoveredSkill:
     """Converts a persisted GESkillRecord ORM row into a DiscoveredSkill."""
     proposals = [
@@ -490,6 +513,11 @@ def _skill_record_to_model(
         for sf in (row.subfiles or [])
         if isinstance(sf, dict)
     ]
+    wf_model = (
+        wf_engine.workflow_record_to_model(workflow_row)
+        if workflow_row is not None
+        else None
+    )
     return models.DiscoveredSkill(
         skill_id=row.skill_id,
         resource_name=row.resource_name,
@@ -513,6 +541,7 @@ def _skill_record_to_model(
         last_synced_at=(
             row.last_synced_at.isoformat() if row.last_synced_at else None
         ),
+        workflow=wf_model,
     )
 
 
@@ -538,6 +567,10 @@ def list_synced_skills(
         .order_by(db_models.GESkillRecord.display_name.asc())
         .all()
     )
+    wf_by_skill = {
+        w.skill_id: w
+        for w in session.query(db_models.SkillWorkflowRecord).all()
+    }
     pending_count = sum(
         1 for r in all_rows if r.review_status == "PENDING_REVIEW"
     )
@@ -567,7 +600,16 @@ def list_synced_skills(
             ).lower()
             if needle not in searchable:
                 continue
-        filtered_items.append(_skill_record_to_model(row))
+        wf_row = wf_by_skill.get(row.skill_id)
+        if wf_row is None and row.review_status == "PENDING_REVIEW":
+            svc = wf_engine.SkillWorkflowEngine(settings=config.get_settings())
+            svc.start_or_run_workflow(session=session, skill_id=row.skill_id)
+            wf_row = (
+                session.query(db_models.SkillWorkflowRecord)
+                .filter_by(skill_id=row.skill_id)
+                .one_or_none()
+            )
+        filtered_items.append(_skill_record_to_model(row, wf_row))
 
     return models.SkillListResponse(
         items=filtered_items,
@@ -590,7 +632,12 @@ def get_synced_skill(
     )
     if row is None:
         return None
-    return _skill_record_to_model(row)
+    wf_row = (
+        session.query(db_models.SkillWorkflowRecord)
+        .filter_by(skill_id=skill_id)
+        .one_or_none()
+    )
+    return _skill_record_to_model(row, wf_row)
 
 
 def list_synced_groups(

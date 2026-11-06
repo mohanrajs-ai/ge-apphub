@@ -21,6 +21,7 @@ from app.routers import groups as groups_router
 from app.routers import skills as skills_router
 from app.routers import sync as sync_router
 from app.services import sync as sync_service
+from skill_workflow_service import router as workflow_router
 
 DEFAULT_FRONTEND_DIST = (
     pathlib.Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -115,6 +116,7 @@ def create_app(
     application.include_router(apps.router)
     application.include_router(groups_router.router)
     application.include_router(skills_router.router)
+    application.include_router(workflow_router.router)
     application.include_router(sync_router.router)
 
     resolved_dist = static_dir or DEFAULT_FRONTEND_DIST

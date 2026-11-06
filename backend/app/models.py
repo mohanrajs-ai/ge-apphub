@@ -1,5 +1,7 @@
 """Pydantic data models for the Gemini Enterprise AppHub backend."""
 
+from typing import Any
+
 import pydantic
 
 
@@ -145,6 +147,34 @@ class SkillSubfile(pydantic.BaseModel):
     mime_type: str = "text/markdown"
 
 
+class SkillWorkflowItem(pydantic.BaseModel):
+    """Represents the 5-stage governance workflow state for a GE skill."""
+
+    workflow_id: str
+    skill_id: str
+    engine_id: str
+    skill_display_name: str
+    owner_email: str = ""
+    current_stage: str = "SKILL_EVALUATION"
+    status: str = "RUNNING"
+    eval_score: int = 0
+    eval_status: str = "PENDING"
+    eval_report: dict[str, Any] = pydantic.Field(default_factory=dict)
+    infosec_risk_level: str = "LOW"
+    infosec_status: str = "PENDING"
+    infosec_report: dict[str, Any] = pydantic.Field(default_factory=dict)
+    approval_status: str = "PENDING"
+    approved_by: str = ""
+    approval_notes: str = ""
+    approved_at: str | None = None
+    registry_id: str = ""
+    shared_in_ge: bool = False
+    shared_principals: list[str] = pydantic.Field(default_factory=list)
+    started_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+
 class DiscoveredSkill(pydantic.BaseModel):
     """Represents a Gemini Enterprise skill and its review/sharing status."""
 
@@ -170,6 +200,7 @@ class DiscoveredSkill(pydantic.BaseModel):
     create_time: str = ""
     update_time: str = ""
     last_synced_at: str | None = None
+    workflow: SkillWorkflowItem | None = None
 
 
 class SkillListResponse(pydantic.BaseModel):
@@ -180,6 +211,73 @@ class SkillListResponse(pydantic.BaseModel):
     pending_review_count: int
     approved_count: int
     draft_count: int = 0
+
+
+class SkillWorkflowStartRequest(pydantic.BaseModel):
+    """Request payload for starting a skill governance workflow."""
+
+    skill_id: str
+
+
+class SkillApprovalRequest(pydantic.BaseModel):
+    """Request payload for InfoSec approval or rejection of a skill."""
+
+    approver_email: str = "infosec-admin@mohanrajs.altostrat.com"
+    notes: str = ""
+
+
+class SkillWorkflowListResponse(pydantic.BaseModel):
+    """Response payload for GET /api/v1/workflows/skills."""
+
+    items: list[SkillWorkflowItem]
+    total: int
+
+
+class SkillRegistryItem(pydantic.BaseModel):
+    """Represents an approved skill published in the Skill Registry."""
+
+    registry_id: str
+    skill_id: str
+    resource_name: str
+    engine_id: str
+    app_display_name: str
+    display_name: str
+    description: str = ""
+    instruction: str = ""
+    version: str = "1.0.0"
+    owner_email: str = ""
+    eval_score: int = 0
+    infosec_risk_level: str = "LOW"
+    approved_by: str = ""
+    shared_principals: list[str] = pydantic.Field(default_factory=list)
+    published_at: str | None = None
+
+
+class SkillRegistryListResponse(pydantic.BaseModel):
+    """Response payload for GET /api/v1/registry/skills."""
+
+    items: list[SkillRegistryItem]
+    total: int
+
+
+class WorkflowEmailItem(pydantic.BaseModel):
+    """Represents a sent or queued InfoSec approval notification email."""
+
+    id: int
+    workflow_id: str
+    skill_id: str
+    recipient_email: str
+    subject: str
+    body_text: str
+    delivery_status: str
+    created_at: str | None = None
+
+
+class WorkflowEmailListResponse(pydantic.BaseModel):
+    """Response payload for GET /api/v1/workflows/notifications."""
+
+    items: list[WorkflowEmailItem]
+    total: int
 
 
 class CloudIdentityGroupInfo(pydantic.BaseModel):

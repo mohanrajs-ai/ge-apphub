@@ -17,5 +17,5 @@
 
 ---
 
-- [~] **Track: Automated Skill Evaluation, InfoSec Governance & Publishing Workflow Microservice**
+- [x] **Track: Automated Skill Evaluation, InfoSec Governance & Publishing Workflow Microservice**
   *Link: [./tracks/skill_governance_workflow_20261106/index.md](./tracks/skill_governance_workflow_20261106/index.md)*

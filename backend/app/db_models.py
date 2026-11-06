@@ -275,6 +275,174 @@ class GESkillRecord(Base):
     )
 
 
+class SkillWorkflowRecord(Base):
+    """Persisted 5-stage skill governance & approval workflow execution."""
+
+    __tablename__ = "skill_workflows"
+
+    id: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
+    workflow_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    skill_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    engine_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), index=True, nullable=False
+    )
+    skill_display_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), nullable=False
+    )
+    owner_email: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    current_stage: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="SKILL_EVALUATION", nullable=False
+    )
+    status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="RUNNING", index=True, nullable=False
+    )
+    eval_score: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, default=0, nullable=False
+    )
+    eval_status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PENDING", nullable=False
+    )
+    eval_report: orm.Mapped[dict[str, Any]] = orm.mapped_column(
+        sqlalchemy.JSON, default=dict, nullable=False
+    )
+    infosec_risk_level: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="LOW", nullable=False
+    )
+    infosec_status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PENDING", nullable=False
+    )
+    infosec_report: orm.Mapped[dict[str, Any]] = orm.mapped_column(
+        sqlalchemy.JSON, default=dict, nullable=False
+    )
+    approval_status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PENDING", nullable=False
+    )
+    approved_by: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    approval_notes: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    approved_at: orm.Mapped[datetime.datetime | None] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), nullable=True
+    )
+    registry_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), default="", nullable=False
+    )
+    shared_in_ge: orm.Mapped[bool] = orm.mapped_column(
+        sqlalchemy.Boolean, default=False, nullable=False
+    )
+    shared_principals: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    started_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+    updated_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
+        nullable=False,
+    )
+    completed_at: orm.Mapped[datetime.datetime | None] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), nullable=True
+    )
+
+
+class SkillRegistryRecord(Base):
+    """Persisted published skill in the Enterprise Skill Registry."""
+
+    __tablename__ = "skill_registry"
+
+    id: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
+    registry_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    skill_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    resource_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(512), nullable=False
+    )
+    engine_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), index=True, nullable=False
+    )
+    app_display_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), default="", nullable=False
+    )
+    display_name: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), nullable=False
+    )
+    description: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    instruction: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    version: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="1.0.0", nullable=False
+    )
+    owner_email: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    eval_score: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, default=0, nullable=False
+    )
+    infosec_risk_level: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="LOW", nullable=False
+    )
+    approved_by: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    shared_principals: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    published_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+
+
+class WorkflowEmailRecord(Base):
+    """Persisted InfoSec approval email notification and outbox record."""
+
+    __tablename__ = "workflow_email_notifications"
+
+    id: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
+    workflow_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), index=True, nullable=False
+    )
+    skill_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), index=True, nullable=False
+    )
+    recipient_email: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), nullable=False
+    )
+    subject: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(512), nullable=False
+    )
+    body_text: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, nullable=False
+    )
+    delivery_status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="QUEUED_LOCAL_OUTBOX", nullable=False
+    )
+    created_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+
+
 class SyncRunRecord(Base):
     """Audit log record of a scheduled or manual synchronization run."""
 

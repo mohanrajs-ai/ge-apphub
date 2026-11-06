@@ -8,10 +8,13 @@ import {
   CatalogResponse,
   LoginResponse,
   SkillListResponse,
+  SkillRegistryListResponse,
   SkillsQueryParams,
+  SkillWorkflowItem,
   SyncRunSummary,
   SyncStatusResponse,
   UserContext,
+  WorkflowEmailListResponse,
 } from '../types/catalog';
 
 function buildHeaders(
@@ -199,5 +202,91 @@ export async function fetchSkills(
     throw new Error(`Failed to fetch skills: HTTP ${response.status}`);
   }
   const data: SkillListResponse = await response.json();
+  return data;
+}
+
+/**
+ * Approves a skill in Stage 3 InfoSec Review, publishing to Registry (Stage 4) and sharing to GE App (Stage 5).
+ */
+export async function approveSkillWorkflow(
+  skillId: string,
+  notes = 'Approved by InfoSec review.',
+  authToken?: string,
+): Promise<SkillWorkflowItem> {
+  const response = await fetch(
+    `/api/v1/workflows/skills/${encodeURIComponent(skillId)}/approve`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(undefined, authToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ notes }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to approve skill workflow: HTTP ${response.status}`);
+  }
+  const data: SkillWorkflowItem = await response.json();
+  return data;
+}
+
+/**
+ * Rejects a skill in Stage 3 InfoSec Review.
+ */
+export async function rejectSkillWorkflow(
+  skillId: string,
+  notes = 'Rejected by InfoSec review.',
+  authToken?: string,
+): Promise<SkillWorkflowItem> {
+  const response = await fetch(
+    `/api/v1/workflows/skills/${encodeURIComponent(skillId)}/reject`,
+    {
+      method: 'POST',
+      headers: {
+        ...buildHeaders(undefined, authToken),
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ notes }),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to reject skill workflow: HTTP ${response.status}`);
+  }
+  const data: SkillWorkflowItem = await response.json();
+  return data;
+}
+
+/**
+ * Fetches published skills from the Enterprise Skill Registry (/api/v1/registry/skills).
+ */
+export async function fetchRegistrySkills(
+  authToken?: string,
+): Promise<SkillRegistryListResponse> {
+  const response = await fetch('/api/v1/registry/skills', {
+    headers: buildHeaders(undefined, authToken),
+  });
+  if (!response.ok) {
+    throw new Error(`Failed to fetch skill registry: HTTP ${response.status}`);
+  }
+  const data: SkillRegistryListResponse = await response.json();
+  return data;
+}
+
+/**
+ * Fetches InfoSec approval email notifications (/api/v1/workflows/notifications).
+ */
+export async function fetchWorkflowNotifications(
+  authToken?: string,
+): Promise<WorkflowEmailListResponse> {
+  const response = await fetch('/api/v1/workflows/notifications', {
+    headers: buildHeaders(undefined, authToken),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `Failed to fetch workflow notifications: HTTP ${response.status}`,
+    );
+  }
+  const data: WorkflowEmailListResponse = await response.json();
   return data;
 }

@@ -5,14 +5,18 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertCircle, Bot, RefreshCw } from 'lucide-react';
 import {
+  approveSkillWorkflow,
   buildGoogleSsoLoginUrl,
   fetchApps,
   fetchAuthConfig,
   fetchCurrentUser,
+  fetchRegistrySkills,
   fetchSkills,
   fetchSyncStatus,
+  fetchWorkflowNotifications,
   loginWithEmail,
   logoutUser,
+  rejectSkillWorkflow,
   triggerSync,
 } from './api/client';
 import { CatalogGrid } from './components/CatalogGrid';
@@ -26,9 +30,11 @@ import {
   CatalogApplication,
   DiscoveredSkill,
   PortalSection,
+  SkillRegistryItem,
   SuggestedUser,
   SyncStatusResponse,
   UserContext,
+  WorkflowEmailItem,
 } from './types/catalog';
 
 const SESSION_TOKEN_KEY = 'ge_auth_token';
@@ -103,6 +109,8 @@ export function App(): React.ReactElement {
   const [activeSection, setActiveSection] = useState<PortalSection>('apps');
   const [apps, setApps] = useState<CatalogApplication[]>([]);
   const [skills, setSkills] = useState<DiscoveredSkill[]>([]);
+  const [registrySkills, setRegistrySkills] = useState<SkillRegistryItem[]>([]);
+  const [workflowEmails, setWorkflowEmails] = useState<WorkflowEmailItem[]>([]);
   const [pendingSkillsCount, setPendingSkillsCount] = useState<number>(0);
   const [approvedSkillsCount, setApprovedSkillsCount] = useState<number>(0);
   const [categories, setCategories] = useState<string[]>([]);
@@ -157,6 +165,20 @@ export function App(): React.ReactElement {
               setSkills(skillsRes.items);
               setPendingSkillsCount(skillsRes.pending_review_count ?? 0);
               setApprovedSkillsCount(skillsRes.approved_count ?? 0);
+            }
+          })
+          .catch(() => null);
+        void fetchRegistrySkills(token)
+          .then((regRes) => {
+            if (regRes && Array.isArray(regRes.items)) {
+              setRegistrySkills(regRes.items);
+            }
+          })
+          .catch(() => null);
+        void fetchWorkflowNotifications(token)
+          .then((notifRes) => {
+            if (notifRes && Array.isArray(notifRes.items)) {
+              setWorkflowEmails(notifRes.items);
             }
           })
           .catch(() => null);
@@ -233,6 +255,30 @@ export function App(): React.ReactElement {
     } finally {
       setSyncing(false);
     }
+  }
+
+  async function handleApproveSkill(skillId: string): Promise<void> {
+    if (!authToken) {
+      return;
+    }
+    await approveSkillWorkflow(
+      skillId,
+      'Approved via AppHub InfoSec Governance portal.',
+      authToken,
+    );
+    await loadCatalogData(activeDevRole, authToken);
+  }
+
+  async function handleRejectSkill(skillId: string): Promise<void> {
+    if (!authToken) {
+      return;
+    }
+    await rejectSkillWorkflow(
+      skillId,
+      'Rejected during InfoSec human approval review.',
+      authToken,
+    );
+    await loadCatalogData(activeDevRole, authToken);
   }
 
   const filteredApps = useMemo(
@@ -377,7 +423,11 @@ export function App(): React.ReactElement {
                     skills={skills}
                     pendingReviewCount={pendingSkillsCount}
                     approvedCount={approvedSkillsCount}
+                    registrySkills={registrySkills}
+                    workflowEmails={workflowEmails}
                     loading={loading}
+                    onApproveSkill={handleApproveSkill}
+                    onRejectSkill={handleRejectSkill}
                   />
                 )}
 

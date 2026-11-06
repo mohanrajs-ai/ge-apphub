@@ -101,6 +101,62 @@ export interface SkillSubfile {
   mime_type: string;
 }
 
+export interface SkillWorkflowCheck {
+  check: string;
+  passed: boolean;
+  detail: string;
+}
+
+export interface SkillWorkflowItem {
+  workflow_id: string;
+  skill_id: string;
+  engine_id: string;
+  skill_display_name: string;
+  owner_email: string;
+  current_stage:
+    | 'SKILL_EVALUATION'
+    | 'INFOSEC_SCAN'
+    | 'AWAITING_INFOSEC_APPROVAL'
+    | 'PUBLISH_REGISTRY'
+    | 'SHARE_TO_APP'
+    | 'COMPLETED'
+    | 'REJECTED'
+    | 'FAILED'
+    | string;
+  status: string;
+  eval_score: number;
+  eval_status: string;
+  eval_report?: {
+    agent_name?: string;
+    score?: number;
+    passed?: boolean;
+    verdict?: string;
+    summary?: string;
+    checks?: SkillWorkflowCheck[];
+  };
+  infosec_risk_level: string;
+  infosec_status: string;
+  infosec_report?: {
+    agent_name?: string;
+    risk_level?: string;
+    passed?: boolean;
+    verdict?: string;
+    summary?: string;
+    findings?: string[];
+    checks?: SkillWorkflowCheck[];
+  };
+  approval_status: string;
+  approved_by: string;
+  approval_notes: string;
+  approved_at?: string | null;
+  registry_id: string;
+  shared_in_ge: boolean;
+  shared_principals: string[];
+  started_at?: string | null;
+  updated_at?: string | null;
+  completed_at?: string | null;
+}
+
 export interface DiscoveredSkill {
   skill_id: string;
   resource_name: string;
@@ -122,6 +178,46 @@ export interface DiscoveredSkill {
   create_time: string;
   update_time: string;
   last_synced_at?: string | null;
+  workflow?: SkillWorkflowItem | null;
+}
+
+export interface SkillRegistryItem {
+  registry_id: string;
+  skill_id: string;
+  resource_name: string;
+  engine_id: string;
+  app_display_name: string;
+  display_name: string;
+  description: string;
+  instruction: string;
+  version: string;
+  owner_email: string;
+  eval_score: number;
+  infosec_risk_level: string;
+  approved_by: string;
+  shared_principals: string[];
+  published_at?: string | null;
+}
+
+export interface SkillRegistryListResponse {
+  items: SkillRegistryItem[];
+  total: number;
+}
+
+export interface WorkflowEmailItem {
+  id: number;
+  workflow_id: string;
+  skill_id: string;
+  recipient_email: string;
+  subject: string;
+  body_text: string;
+  delivery_status: string;
+  created_at?: string | null;
+}
+
+export interface WorkflowEmailListResponse {
+  items: WorkflowEmailItem[];
+  total: number;
 }
 
 export interface SkillListResponse {
