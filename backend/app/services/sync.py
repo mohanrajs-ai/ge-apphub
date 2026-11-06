@@ -412,6 +412,10 @@ class CatalogSyncService:
                     session=session,
                     skill_id=row.skill_id,
                 )
+        if synced_skill_ids:
+            for existing in session.query(db_models.GESkillRecord).all():
+                if existing.skill_id not in synced_skill_ids:
+                    session.delete(existing)
         return len(skills)
 
     def _ensure_user_record(

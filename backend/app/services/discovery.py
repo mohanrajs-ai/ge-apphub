@@ -740,8 +740,10 @@ def fetch_engine_skills(
                 or active_prop
             ):
                 review_status = "PENDING_REVIEW"
-            elif state == "ENABLED":
+            elif state == "ENABLED" or sharing_scope == "ALL_USERS":
                 review_status = "APPROVED"
+                state = "ENABLED"
+                sharing_state = "SHARED"
             else:
                 review_status = "DRAFT"
 

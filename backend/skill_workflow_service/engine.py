@@ -220,7 +220,7 @@ def share_skill_in_discovery_engine(
     principals: list[str],
     settings: config.Settings,
 ) -> bool:
-    """Applies Stage 5 IAM policy & sharing on the GE Skill resource."""
+    """Applies Stage 5 IAM approval, enabling & publishing across GE Apps."""
     if settings.use_mock_data or not skill.resource_name:
         return True
     try:
@@ -228,11 +228,27 @@ def share_skill_in_discovery_engine(
             scopes=["https://www.googleapis.com/auth/cloud-platform"]
         )
         authed = google_requests.AuthorizedSession(credentials)
-        authed.headers["x-goog-user-project"] = settings.gcp_project_id
-        pol_url = (
-            "https://discoveryengine.googleapis.com/v1alpha/"
-            f"{skill.resource_name}:getIamPolicy"
+        project = settings.gcp_project_id or "mohandemo"
+        location = settings.gcp_location or "global"
+        authed.headers["x-goog-user-project"] = project
+        base = "https://discoveryengine.googleapis.com/v1alpha"
+
+        for prop in skill.iam_proposals or []:
+            prop_id = str(prop.get("proposal_id") or "").strip()
+            if prop_id:
+                app_url = (
+                    f"{base}/{skill.resource_name}/iamProposals/"
+                    f"{prop_id}:approve"
+                )
+                authed.post(app_url, json={}, timeout=5.0)
+
+        authed.post(
+            f"{base}/{skill.resource_name}:enableAgent",
+            json={},
+            timeout=5.0,
         )
+
+        pol_url = f"{base}/{skill.resource_name}:getIamPolicy"
         pol_resp = authed.get(pol_url, timeout=5.0)
         bindings: list[dict[str, Any]] = []
         etag = ""
@@ -242,7 +258,9 @@ def share_skill_in_discovery_engine(
             etag = str(pol_json.get("etag") or "")
 
         user_members = [
-            p if ":" in p else f"user:{p}" for p in principals if p
+            p if ":" in p else f"user:{p}"
+            for p in principals
+            if p and not p.startswith("group:")
         ]
         updated_role = False
         for b in bindings:
@@ -257,14 +275,57 @@ def share_skill_in_discovery_engine(
                     "members": sorted(set(user_members)),
                 }
             )
-        set_pol_url = (
-            "https://discoveryengine.googleapis.com/v1alpha/"
-            f"{skill.resource_name}:setIamPolicy"
-        )
+        set_pol_url = f"{base}/{skill.resource_name}:setIamPolicy"
         policy_body: dict[str, Any] = {"policy": {"bindings": bindings}}
         if etag:
             policy_body["policy"]["etag"] = etag
         authed.post(set_pol_url, json=policy_body, timeout=5.0)
+
+        eng_url = (
+            f"{base}/projects/{project}/locations/{location}/"
+            "collections/default_collection/engines"
+        )
+        eng_resp = authed.get(eng_url, timeout=8.0)
+        if eng_resp.status_code == 200:
+            for eng in eng_resp.json().get("engines") or []:
+                eng_id = str(eng.get("name") or "").split("/")[-1]
+                if not eng_id or eng_id == skill.engine_id:
+                    continue
+                ag_list_url = (
+                    f"{base}/projects/{project}/locations/{location}/"
+                    f"collections/default_collection/engines/{eng_id}/"
+                    "assistants/default_assistant/agents"
+                )
+                ag_resp = authed.get(ag_list_url, timeout=5.0)
+                if ag_resp.status_code != 200:
+                    continue
+                exists = any(
+                    a.get("displayName") == skill.display_name
+                    for a in (ag_resp.json().get("agents") or [])
+                )
+                if not exists:
+                    inst = (skill.instruction or "").replace(
+                        f"/engines/{skill.engine_id}/",
+                        f"/engines/{eng_id}/",
+                    )
+                    c_resp = authed.post(
+                        ag_list_url,
+                        json={
+                            "displayName": skill.display_name,
+                            "description": skill.description,
+                            "sharingConfig": {"scope": "ALL_USERS"},
+                            "skillAgentDefinition": {"instruction": inst},
+                        },
+                        timeout=10.0,
+                    )
+                    if c_resp.status_code == 200:
+                        new_name = c_resp.json().get("name", "")
+                        if new_name:
+                            authed.post(
+                                f"{base}/{new_name}:publish",
+                                json={},
+                                timeout=5.0,
+                            )
     except Exception as exc:  # pylint: disable=broad-except
         LOGGER.debug(
             "Discovery Engine skill share IAM update note for %s: %s",
