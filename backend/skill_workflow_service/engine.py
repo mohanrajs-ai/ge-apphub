@@ -1,9 +1,13 @@
 """5-Stage Skill Governance, InfoSec Approval, Registry & Sharing Engine."""
 
+import base64
 import datetime
+import io
 import logging
 import os
+import re
 import smtplib
+import zipfile
 from email import message as email_message
 from typing import Any
 
@@ -123,6 +127,92 @@ def send_infosec_approval_email(
     session.add(record)
     session.flush()
     return record
+
+
+def publish_skill_to_agent_platform_registry(
+    skill: db_models.GESkillRecord,
+    settings: config.Settings,
+) -> tuple[str, str]:
+    """Publishes skill to GCP Agent Platform Skill Registry (agentregistry)."""
+    slug = re.sub(r"[^a-z0-9-]+", "-", skill.display_name.lower()).strip("-")
+    if len(slug) < 4:
+        slug = f"skill-{slug or 'custom'}"
+    slug = slug[:60]
+    project = settings.gcp_project_id or "mohandemo"
+    location = settings.gcp_location or "global"
+    default_res = (
+        f"projects/{project}/locations/{location}/skills/private-{slug}"
+    )
+    default_urn = (
+        f"urn:skill:projects-{project}:locations:{location}:private-{slug}"
+    )
+
+    if settings.use_mock_data:
+        return default_urn, default_res
+
+    try:
+        credentials, _ = google.auth.default(
+            scopes=["https://www.googleapis.com/auth/cloud-platform"]
+        )
+        authed = google_requests.AuthorizedSession(credentials)
+        authed.headers["x-goog-user-project"] = project
+
+        get_url = f"https://agentregistry.googleapis.com/v1alpha/{default_res}"
+        existing = authed.get(get_url, timeout=10.0)
+        if existing.status_code == 200:
+            data = existing.json()
+            return (
+                str(data.get("skillId") or default_urn),
+                str(data.get("name") or default_res),
+            )
+
+        instruction = skill.instruction or f"# {skill.display_name}\n"
+        desc_clean = (
+            (skill.description or skill.display_name).replace("\n", " ").strip()
+        )
+        if not instruction.lstrip().startswith("---"):
+            skill_md = (
+                f"---\nname: {slug}\ndescription: >-\n"
+                f"  {desc_clean}\n---\n\n{instruction}"
+            )
+        else:
+            skill_md = instruction
+
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("SKILL.md", skill_md.encode("utf-8"))
+        zip_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+        create_url = (
+            f"https://agentregistry.googleapis.com/v1alpha/"
+            f"projects/{project}/locations/{location}/skills?skillId={slug}"
+        )
+        payload: dict[str, Any] = {
+            "displayName": slug,
+            "description": skill.description or skill.display_name,
+            "type": "SIMPLE",
+            "targetState": "TARGET_STATE_ACTIVE",
+            "scanningConfig": {"policy": "ENABLED_NONBLOCKING"},
+            "initialRevision": {
+                "archiveUploadSource": {"archiveContent": zip_b64}
+            },
+        }
+        create_resp = authed.post(create_url, json=payload, timeout=20.0)
+        if create_resp.status_code in (200, 201):
+            check_resp = authed.get(get_url, timeout=10.0)
+            if check_resp.status_code == 200:
+                c_data = check_resp.json()
+                return (
+                    str(c_data.get("skillId") or default_urn),
+                    str(c_data.get("name") or default_res),
+                )
+    except Exception as exc:  # pylint: disable=broad-except
+        LOGGER.debug(
+            "Agent Platform Skill Registry publish note for %s: %s",
+            skill.skill_id,
+            exc,
+        )
+    return default_urn, default_res
 
 
 def share_skill_in_discovery_engine(
@@ -353,9 +443,12 @@ class SkillWorkflowEngine:
 
         sorted_principals = sorted(target_principals)
 
-        # Stage 4: Publish the Skill in the Enterprise Skill Registry
+        # Stage 4: Publish the Skill in the GCP Agent Platform Skill Registry
         wf.current_stage = "PUBLISH_REGISTRY"
-        reg_id = f"reg-{skill.skill_id.replace(':', '-')}"
+        reg_id, reg_res_name = publish_skill_to_agent_platform_registry(
+            skill=skill,
+            settings=self._settings,
+        )
         reg_row = (
             session.query(db_models.SkillRegistryRecord)
             .filter_by(skill_id=skill.skill_id)
@@ -365,7 +458,7 @@ class SkillWorkflowEngine:
             reg_row = db_models.SkillRegistryRecord(
                 registry_id=reg_id,
                 skill_id=skill.skill_id,
-                resource_name=skill.resource_name,
+                resource_name=reg_res_name,
                 engine_id=skill.engine_id,
                 app_display_name=skill.app_display_name or skill.engine_id,
                 display_name=skill.display_name,
@@ -381,6 +474,8 @@ class SkillWorkflowEngine:
             )
             session.add(reg_row)
         else:
+            reg_row.registry_id = reg_id
+            reg_row.resource_name = reg_res_name
             reg_row.approved_by = clean_approver
             reg_row.eval_score = wf.eval_score
             reg_row.infosec_risk_level = wf.infosec_risk_level
