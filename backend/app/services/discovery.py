@@ -506,6 +506,18 @@ def get_mock_engines(project_id: str) -> list[models.DiscoveredEngine]:
                 location=location,
                 engine_id=engine_id,
             ),
+            data_store_ids=[
+                "m365-od-test_file",
+                "m365-ol-test_calendar",
+                "m365-ol-test_contact",
+                "m365-ol-test_mail",
+                "m365-ol-test_mail-attachment",
+                "m365-sp_file",
+                "m365-sp_page",
+                "m365-teams-test_channel-message",
+                "m365-teams-test_chat-message",
+                f"{engine_id}-enterprise-knowledge-ds-01",
+            ],
         )
         for engine_id, display_name, location, solution_type in raw_items
     ]
@@ -953,6 +965,12 @@ class DiscoveryEngineService:
                     location,
                     engine_id,
                 )
+                raw_ds_ids = getattr(item, "data_store_ids", None) or []
+                data_store_ids = [
+                    str(ds_id).strip()
+                    for ds_id in raw_ds_ids
+                    if str(ds_id).strip()
+                ]
                 discovered.append(
                     models.DiscoveredEngine(
                         engine_id=engine_id,
@@ -963,6 +981,7 @@ class DiscoveryEngineService:
                         app_type=str(app_type),
                         default_launch_url=launch_url,
                         iam_principals=iam_principals,
+                        data_store_ids=data_store_ids,
                     )
                 )
             return discovered

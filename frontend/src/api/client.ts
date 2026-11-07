@@ -212,7 +212,12 @@ export async function approveSkillWorkflow(
   skillId: string,
   notes = 'Approved by InfoSec review.',
   authToken?: string,
+  targetEngines?: string[],
 ): Promise<SkillWorkflowItem> {
+  const payload: { notes: string; target_engines?: string[] } = { notes };
+  if (targetEngines && targetEngines.length > 0) {
+    payload.target_engines = targetEngines;
+  }
   const response = await fetch(
     `/api/v1/workflows/skills/${encodeURIComponent(skillId)}/approve`,
     {
@@ -221,7 +226,7 @@ export async function approveSkillWorkflow(
         ...buildHeaders(undefined, authToken),
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ notes }),
+      body: JSON.stringify(payload),
     },
   );
   if (!response.ok) {

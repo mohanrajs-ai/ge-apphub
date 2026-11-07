@@ -126,4 +126,83 @@ describe('Sidebar and SkillsSection', () => {
       screen.getByText(/No skills found in this view/i),
     ).toBeInTheDocument();
   });
+
+  it('enforces RBAC between End-User AI Skill Hub and Admin Skill Governance Console', () => {
+    const onSelect = vi.fn();
+    const { rerender } = render(
+      <Sidebar
+        activeSection="skills"
+        onSelectSection={onSelect}
+        appsCount={7}
+        skillsCount={1}
+        pendingSkillsCount={1}
+        isAdmin={false}
+      />,
+    );
+    expect(screen.queryByText('Skill Governance')).not.toBeInTheDocument();
+
+    rerender(
+      <Sidebar
+        activeSection="skills"
+        onSelectSection={onSelect}
+        appsCount={7}
+        skillsCount={1}
+        pendingSkillsCount={1}
+        isAdmin={true}
+      />,
+    );
+    expect(screen.getByText('Skill Governance')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Skill Governance'));
+    expect(onSelect).toHaveBeenCalledWith('skill-governance');
+
+    const approvedSkill: DiscoveredSkill = {
+      ...MOCK_SKILLS[0],
+      review_status: 'APPROVED',
+      workflow: {
+        ...MOCK_SKILLS[0].workflow!,
+        approval_status: 'APPROVED',
+        distribution_scope: 'MULTI_APP',
+        target_engines: ['service-desk-app-01', 'finance-app-01'],
+        required_connectors: [
+          {
+            connector_id: 'outlook-calendar',
+            display_name: 'Outlook Calendar',
+          },
+          { connector_id: 'teams', display_name: 'Microsoft Teams' },
+        ],
+        target_app_evaluations: [
+          {
+            engine_id: 'service-desk-app-01',
+            app_display_name: 'Service Desk App',
+            location: 'global',
+            connector_readiness: 'READY',
+            matched_connectors: ['outlook-calendar', 'teams'],
+            missing_connectors: [],
+            data_store_count: 10,
+            eval_score: 95,
+            eval_status: 'PASSED',
+            rendered_tokens: 1814,
+            optimized_tokens: 1670,
+            tokens_saved: 144,
+            reduction_pct: 7.9,
+            efficiency_grade: 'A',
+          },
+        ],
+      },
+    };
+
+    render(
+      <SkillsSection
+        mode="user-hub"
+        skills={[approvedSkill]}
+        pendingReviewCount={0}
+        approvedCount={1}
+        loading={false}
+        isAdmin={true}
+      />,
+    );
+    expect(screen.getByText('Enterprise AI Skill Hub')).toBeInTheDocument();
+    expect(screen.getByText('Outlook Calendar')).toBeInTheDocument();
+    expect(screen.getByText('Microsoft Teams')).toBeInTheDocument();
+  });
 });

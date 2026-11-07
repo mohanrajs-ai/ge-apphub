@@ -155,6 +155,9 @@ class GEApplicationRecord(Base):
     iam_principals: orm.Mapped[list[str]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
+    data_store_ids: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
     allowed_roles: orm.Mapped[list[str]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
@@ -343,6 +346,27 @@ class SkillWorkflowRecord(Base):
     shared_principals: orm.Mapped[list[str]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
+    templatized_instruction: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    required_connectors: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    requested_groups: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    distribution_scope: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="SINGLE_APP", nullable=False
+    )
+    target_engines: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    target_app_evaluations: orm.Mapped[list[dict[str, Any]]] = (
+        orm.mapped_column(sqlalchemy.JSON, default=list, nullable=False)
+    )
+    distributed_apps: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
     started_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
         sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
     )
@@ -405,6 +429,15 @@ class SkillRegistryRecord(Base):
         sqlalchemy.String(320), default="", nullable=False
     )
     shared_principals: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    required_connectors: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    target_engines: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    distributed_apps: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
     published_at: orm.Mapped[datetime.datetime] = orm.mapped_column(

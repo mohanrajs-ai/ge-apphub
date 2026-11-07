@@ -257,7 +257,10 @@ export function App(): React.ReactElement {
     }
   }
 
-  async function handleApproveSkill(skillId: string): Promise<void> {
+  async function handleApproveSkill(
+    skillId: string,
+    targetEngines?: string[],
+  ): Promise<void> {
     if (!authToken) {
       return;
     }
@@ -265,6 +268,7 @@ export function App(): React.ReactElement {
       skillId,
       'Approved via AppHub InfoSec Governance portal.',
       authToken,
+      targetEngines,
     );
     await loadCatalogData(activeDevRole, authToken);
   }
@@ -280,6 +284,18 @@ export function App(): React.ReactElement {
     );
     await loadCatalogData(activeDevRole, authToken);
   }
+
+  const isAdmin = useMemo(() => {
+    if (activeDevRole.toLowerCase() === 'admin') {
+      return true;
+    }
+    return Boolean(
+      user?.roles?.some(
+        (r) =>
+          r.toLowerCase() === 'admin' || r.toLowerCase() === 'infosec',
+      ),
+    );
+  }, [user, activeDevRole]);
 
   const filteredApps = useMemo(
     () =>
@@ -343,6 +359,8 @@ export function App(): React.ReactElement {
                 appsCount={apps.length}
                 skillsCount={skills.length}
                 pendingSkillsCount={pendingSkillsCount}
+                approvedSkillsCount={approvedSkillsCount}
+                isAdmin={isAdmin}
               />
 
               <div className="min-w-0 flex-1">
@@ -420,7 +438,29 @@ export function App(): React.ReactElement {
 
                 {activeSection === 'skills' && (
                   <SkillsSection
+                    mode="user-hub"
                     skills={skills}
+                    userApps={apps}
+                    isAdmin={isAdmin}
+                    onOpenGovernance={() =>
+                      setActiveSection('skill-governance')
+                    }
+                    pendingReviewCount={pendingSkillsCount}
+                    approvedCount={approvedSkillsCount}
+                    registrySkills={registrySkills}
+                    workflowEmails={workflowEmails}
+                    loading={loading}
+                    onApproveSkill={handleApproveSkill}
+                    onRejectSkill={handleRejectSkill}
+                  />
+                )}
+
+                {activeSection === 'skill-governance' && (
+                  <SkillsSection
+                    mode="admin-governance"
+                    skills={skills}
+                    userApps={apps}
+                    isAdmin={isAdmin}
                     pendingReviewCount={pendingSkillsCount}
                     approvedCount={approvedSkillsCount}
                     registrySkills={registrySkills}

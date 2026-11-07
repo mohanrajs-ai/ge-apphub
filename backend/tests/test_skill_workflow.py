@@ -182,12 +182,17 @@ def test_end_to_end_5_stage_skill_workflow_and_microservice_api(
         assert notif_resp.status_code == 200
         assert notif_resp.json()["total"] >= 1
 
-        # TriggerStage 3 InfoSec Approval -> executes Stage 4 & Stage 5
+        # Trigger Stage 4 InfoSec Approval -> executes Stage 5 & Stage 6
         approve_resp = client.post(
             f"/api/v1/workflows/skills/{skill_id}/approve",
             json={
                 "approver_email": "infosec@mohanrajs.altostrat.com",
                 "notes": "Verified safe for enterprise sharing.",
+                "target_engines": [
+                    "service-desk-app-01",
+                    "ge-enterprise-search",
+                    "ge-finops-insights",
+                ],
             },
         )
         assert approve_resp.status_code == 200
@@ -197,6 +202,8 @@ def test_end_to_end_5_stage_skill_workflow_and_microservice_api(
         assert approved_wf["approval_status"] == "APPROVED"
         assert approved_wf["shared_in_ge"] is True
         assert approved_wf["registry_id"] != ""
+        assert "ge-finops-insights" in approved_wf["target_engines"]
+        assert len(approved_wf["distributed_apps"]) >= 2
 
         # Verify Stage 4: Skill is published in Skill Registry
         reg_resp = client.get("/api/v1/registry/skills")
@@ -257,4 +264,69 @@ def test_end_to_end_5_stage_skill_workflow_and_microservice_api(
             client.post("/api/v1/workflows/skills/missing/reject").status_code
             == 404
         )
+
+
+def test_templatizer_connector_extractor_and_multi_app_readiness() -> None:
+    """Verifies Stage 1 templatizer, connector extractor & Stage 2 readiness."""
+    from skill_workflow_service.agents import skill_eval_agent
+
+    raw_md = (
+        "# Daily Morning Summary\n\n"
+        "Uses `projects/720923281941/locations/global/collections/"
+        "default_collection/engines/service-desk-app-01/assistants/"
+        "default_assistant/agents/outlook-calendar`, "
+        "`.../engines/service-desk-app-01/assistants/default_assistant/"
+        "agents/outlook-email`, and "
+        "`.../engines/service-desk-app-01/assistants/default_assistant/"
+        "agents/teams`, plus `service-desk-app-enterprise-knowledge-ds-01`."
+    )
+    templatized = skill_eval_agent.templatize_skill_environment(raw_md)
+    assert "/engines/{{engine_id}}/" in templatized
+    assert "/engines/service-desk-app-01/" not in templatized
+    assert "{{app_knowledge_datastore_id}}" in templatized
+
+    rendered = skill_eval_agent.render_skill_for_engine(
+        templatized, "finance-app-01"
+    )
+    assert "/engines/finance-app-01/" in rendered
+    assert "finance-app-01-enterprise-knowledge-ds-01" in rendered
+
+    connectors = skill_eval_agent.extract_required_connectors(raw_md)
+    c_ids = [c["connector_id"] for c in connectors]
+    assert "outlook-calendar" in c_ids
+    assert "outlook-email" in c_ids
+    assert "teams" in c_ids
+
+    readiness = skill_eval_agent.evaluate_target_apps_readiness(
+        display_name="daily-morning-summary",
+        description="Morning summary across Outlook & Teams",
+        instruction=raw_md,
+        target_apps=[
+            {
+                "engine_id": "finance-app-01",
+                "display_name": "Finance App",
+                "location": "global",
+                "data_store_ids": [
+                    "m365-ol-test_calendar",
+                    "m365-ol-test_mail",
+                    "m365-teams-test_chat-message",
+                    "finance-app-enterprise-knowledge-ds-01",
+                ],
+            },
+            {
+                "engine_id": "gemini-enterprise-new5-179_1791386427706",
+                "display_name": "Gemini Enterprise New5",
+                "location": "global",
+                "data_store_ids": [
+                    "outlook_1791378136223_calendar",
+                    "outlook_1791378136223_mail",
+                ],
+            },
+        ],
+    )
+    assert len(readiness) == 2
+    assert readiness[0]["connector_readiness"] == "READY"
+    assert readiness[0]["missing_connectors"] == []
+    assert readiness[1]["connector_readiness"] == "MISSING_CONNECTORS"
+    assert "teams" in readiness[1]["missing_connectors"]
 

@@ -34,6 +34,15 @@ def workflow_record_to_model(
     row: db_models.SkillWorkflowRecord,
 ) -> models.SkillWorkflowItem:
     """Converts a SkillWorkflowRecord ORM row into a SkillWorkflowItem."""
+    eval_rep = dict(row.eval_report or {})
+    templatized = str(
+        row.templatized_instruction
+        or eval_rep.get("templatized_instruction")
+        or ""
+    )
+    req_connectors = list(
+        row.required_connectors or eval_rep.get("required_connectors") or []
+    )
     return models.SkillWorkflowItem(
         workflow_id=row.workflow_id,
         skill_id=row.skill_id,
@@ -44,7 +53,14 @@ def workflow_record_to_model(
         status=row.status,
         eval_score=row.eval_score,
         eval_status=row.eval_status,
-        eval_report=dict(row.eval_report or {}),
+        eval_report=eval_rep,
+        templatized_instruction=templatized,
+        required_connectors=req_connectors,
+        requested_groups=list(row.requested_groups or []),
+        distribution_scope=str(row.distribution_scope or "SINGLE_APP"),
+        target_engines=list(row.target_engines or [row.engine_id]),
+        target_app_evaluations=list(row.target_app_evaluations or []),
+        distributed_apps=list(row.distributed_apps or []),
         infosec_risk_level=row.infosec_risk_level,
         infosec_status=row.infosec_status,
         infosec_report=dict(row.infosec_report or {}),
@@ -131,9 +147,7 @@ def send_infosec_approval_email(
 
 def parameterize_skill_instruction(instruction: str) -> str:
     """Replaces hardcoded Discovery Engine IDs with {{engine_id}} template."""
-    if not instruction:
-        return ""
-    return re.sub(r"/engines/[^/\s`]+/", "/engines/{{engine_id}}/", instruction)
+    return skill_eval_agent.templatize_skill_environment(instruction)
 
 
 def render_skill_instruction_for_engine(
@@ -144,7 +158,9 @@ def render_skill_instruction_for_engine(
     if not instruction:
         return ""
     parameterized = parameterize_skill_instruction(instruction)
-    return parameterized.replace("{{engine_id}}", target_engine_id)
+    return skill_eval_agent.render_skill_for_engine(
+        parameterized, target_engine_id
+    )
 
 
 _FEDERATED_GROUP_TO_ENGINE: dict[str, str] = {
@@ -502,8 +518,128 @@ def share_skill_in_discovery_engine(
     return True
 
 
+def _collect_requested_groups_and_targets(
+    session: orm.Session,
+    skill: db_models.GESkillRecord,
+    extra_principals: list[str] | None = None,
+) -> tuple[list[str], str, list[str]]:
+    """Extracts requested group principals and resolves target GE Apps."""
+    raw_principals: list[str] = list(skill.shared_principals or [])
+    for prop in skill.iam_proposals or []:
+        p = str(prop.get("principal") or "").strip().lower()
+        if p:
+            raw_principals.append(p)
+    for ep in extra_principals or []:
+        if ep:
+            raw_principals.append(ep.strip().lower())
+
+    app_bindings = (
+        session.query(db_models.AppGroupBindingRecord)
+        .filter_by(engine_id=skill.engine_id, principal_type="group")
+        .all()
+    )
+    for b in app_bindings:
+        if b.principal_identifier:
+            raw_principals.append(f"group:{b.principal_identifier}")
+
+    groups: set[str] = set()
+    for item in raw_principals:
+        clean = item.strip().lower()
+        if clean.startswith("group:"):
+            groups.add(clean.split(":", 1)[1].strip())
+        elif "@" in clean and not clean.startswith("user:"):
+            groups.add(clean)
+
+    scope, targets = resolve_target_engines_from_groups(
+        session=session,
+        skill=skill,
+        principals=raw_principals,
+    )
+    return sorted(groups), scope, targets
+
+
+def _evaluate_all_target_apps(
+    session: orm.Session,
+    skill: db_models.GESkillRecord,
+    eval_result: dict[str, Any],
+    selected_targets: list[str],
+) -> list[dict[str, Any]]:
+    """Evaluates skill readiness & token savings across candidate GE Apps."""
+    app_rows = (
+        session.query(db_models.GEApplicationRecord)
+        .order_by(db_models.GEApplicationRecord.id.asc())
+        .all()
+    )
+    candidate_apps: list[dict[str, Any]] = []
+    seen_engines: set[str] = set()
+    for r in app_rows:
+        seen_engines.add(r.engine_id)
+        candidate_apps.append(
+            {
+                "engine_id": r.engine_id,
+                "display_name": r.display_name or r.engine_id,
+                "location": r.location or "global",
+                "data_store_ids": list(r.data_store_ids or []),
+            }
+        )
+    for eng_id in selected_targets:
+        if eng_id and eng_id not in seen_engines:
+            seen_engines.add(eng_id)
+            candidate_apps.append(
+                {
+                    "engine_id": eng_id,
+                    "display_name": eng_id,
+                    "location": "global",
+                    "data_store_ids": [],
+                }
+            )
+
+    evals = skill_eval_agent.evaluate_target_apps_readiness(
+        display_name=skill.display_name,
+        description=skill.description,
+        instruction=skill.instruction,
+        target_apps=candidate_apps,
+        base_eval=eval_result,
+    )
+    selected_set = set(selected_targets)
+    for item in evals:
+        item["selected_for_distribution"] = (
+            item.get("engine_id") in selected_set
+        )
+    return evals
+
+
+def _build_distributed_apps_manifest(
+    session: orm.Session,
+    target_engines: list[str],
+    now: datetime.datetime,
+) -> list[dict[str, Any]]:
+    """Builds the per-app distribution manifest for approved target GE Apps."""
+    apps_by_id = {
+        r.engine_id: r
+        for r in session.query(db_models.GEApplicationRecord).all()
+    }
+    distributed: list[dict[str, Any]] = []
+    for eng_id in target_engines:
+        app_row = apps_by_id.get(eng_id)
+        distributed.append(
+            {
+                "engine_id": eng_id,
+                "app_display_name": (
+                    app_row.display_name if app_row else eng_id
+                ),
+                "location": app_row.location if app_row else "global",
+                "launch_url": app_row.launch_url if app_row else "",
+                "status": "DISTRIBUTED",
+                "sharing_scope": "ALL_USERS",
+                "distributed_at": now.isoformat(),
+            }
+        )
+    return distributed
+
+
 class SkillWorkflowEngine:
-    """Orchestrates the 5-stage Skill Evaluation, InfoSec & Registry flow."""
+    """Orchestrates the 6-stage Multi-App AI Skill Hub workflow."""
 
     def __init__(
         self,
@@ -524,7 +660,7 @@ class SkillWorkflowEngine:
         skill_id: str,
         force_restart: bool = False,
     ) -> models.SkillWorkflowItem:
-        """Starts or advances the workflow for a skill through Stages 1-3."""
+        """Starts or advances the workflow for a skill through Stages 1-4."""
         skill = (
             session.query(db_models.GESkillRecord)
             .filter_by(skill_id=skill_id)
@@ -559,13 +695,37 @@ class SkillWorkflowEngine:
             session.add(wf)
             session.flush()
 
-        # Stage 1: Invoke Local ADK Skill Evaluation Agent
+        # Stage 1 & 2: Templatize Environment, Extract Connectors, Map Groups
+        # and Evaluate Skill across all Target GE Apps
         eval_result = self._eval_agent.evaluate_skill(
             display_name=skill.display_name,
             description=skill.description,
             instruction=skill.instruction,
             subfiles=list(skill.subfiles or []),
         )
+        req_groups, dist_scope, target_engines = (
+            _collect_requested_groups_and_targets(
+                session=session,
+                skill=skill,
+            )
+        )
+        target_app_evals = _evaluate_all_target_apps(
+            session=session,
+            skill=skill,
+            eval_result=eval_result,
+            selected_targets=target_engines,
+        )
+        wf.templatized_instruction = str(
+            eval_result.get("templatized_instruction")
+            or parameterize_skill_instruction(skill.instruction)
+        )
+        wf.required_connectors = list(
+            eval_result.get("required_connectors") or []
+        )
+        wf.requested_groups = req_groups
+        wf.distribution_scope = dist_scope
+        wf.target_engines = target_engines
+        wf.target_app_evaluations = target_app_evals
         wf.eval_score = int(eval_result.get("score", 0))
         wf.eval_status = "PASSED" if eval_result.get("passed") else "FAILED"
         wf.eval_report = eval_result
@@ -577,7 +737,7 @@ class SkillWorkflowEngine:
             session.commit()
             return workflow_record_to_model(wf)
 
-        # Stage 2: Invoke Local ADK InfoSec Agent
+        # Stage 3: Invoke Local ADK InfoSec Agent
         wf.current_stage = "INFOSEC_SCAN"
         sec_result = self._sec_agent.scan_skill(
             display_name=skill.display_name,
@@ -596,7 +756,7 @@ class SkillWorkflowEngine:
             session.commit()
             return workflow_record_to_model(wf)
 
-        # Stage 3: Send InfoSec Approval Email & Wait for Human Approval
+        # Stage 4: Send InfoSec Approval Email & Wait for Human Approval
         wf.current_stage = "AWAITING_INFOSEC_APPROVAL"
         wf.status = "AWAITING_APPROVAL"
         wf.approval_status = "PENDING"
@@ -615,8 +775,9 @@ class SkillWorkflowEngine:
         skill_id: str,
         approver_email: str,
         notes: str = "",
+        target_engines: list[str] | None = None,
     ) -> models.SkillWorkflowItem:
-        """Executes Stage 3 Approval -> Stage 4 Registry -> Stage 5 GE Share."""
+        """Executes Approval -> Registry Publish -> Multi-App Distribution."""
         skill = (
             session.query(db_models.GESkillRecord)
             .filter_by(skill_id=skill_id)
@@ -670,19 +831,80 @@ class SkillWorkflowEngine:
             target_principals.add(f"group:{b.principal_identifier}")
 
         sorted_principals = sorted(target_principals)
+        req_groups, resolved_scope, resolved_targets = (
+            _collect_requested_groups_and_targets(
+                session=session,
+                skill=skill,
+                extra_principals=sorted_principals,
+            )
+        )
+        if target_engines:
+            selected_targets = sorted(
+                {e.strip() for e in target_engines if e.strip()}
+                | ({skill.engine_id} if skill.engine_id else set())
+            )
+        elif wf.target_engines:
+            selected_targets = sorted(
+                set(wf.target_engines) | set(resolved_targets)
+            )
+        else:
+            selected_targets = resolved_targets
 
-        # Stage 4: Publish the Skill in the GCP Agent Platform Skill Registry
+        all_app_count = session.query(db_models.GEApplicationRecord).count()
+        if all_app_count > 1 and len(selected_targets) >= all_app_count - 1:
+            dist_scope = "GLOBAL"
+        elif len(selected_targets) > 1:
+            dist_scope = "MULTI_APP"
+        else:
+            dist_scope = resolved_scope
+
+        for target_eng in selected_targets:
+            eng_bindings = (
+                session.query(db_models.AppGroupBindingRecord)
+                .filter_by(engine_id=target_eng, principal_type="group")
+                .all()
+            )
+            for eb in eng_bindings:
+                if eb.principal_identifier:
+                    target_principals.add(f"group:{eb.principal_identifier}")
+                    if eb.principal_identifier not in req_groups:
+                        req_groups.append(eb.principal_identifier)
+        sorted_principals = sorted(target_principals)
+        req_groups = sorted(set(req_groups))
+
+        param_instruction = parameterize_skill_instruction(skill.instruction)
+        req_connectors = list(
+            wf.required_connectors
+            or skill_eval_agent.extract_required_connectors(skill.instruction)
+        )
+
+        # Stage 5: Publish the Skill in the GCP Agent Platform Skill Registry
         wf.current_stage = "PUBLISH_REGISTRY"
         reg_id, reg_res_name = publish_skill_to_agent_platform_registry(
             skill=skill,
             settings=self._settings,
         )
+
+        # Stage 6: Distribute Skill from Registry to each Target GE App
+        wf.current_stage = "SHARE_TO_APP"
+        share_skill_in_discovery_engine(
+            skill=skill,
+            principals=sorted_principals,
+            settings=self._settings,
+            registry_resource_name=reg_res_name,
+            target_engines=selected_targets,
+        )
+        distributed_apps = _build_distributed_apps_manifest(
+            session=session,
+            target_engines=selected_targets,
+            now=now,
+        )
+
         reg_row = (
             session.query(db_models.SkillRegistryRecord)
             .filter_by(skill_id=skill.skill_id)
             .one_or_none()
         )
-        param_instruction = parameterize_skill_instruction(skill.instruction)
         if reg_row is None:
             reg_row = db_models.SkillRegistryRecord(
                 registry_id=reg_id,
@@ -699,6 +921,9 @@ class SkillWorkflowEngine:
                 infosec_risk_level=wf.infosec_risk_level,
                 approved_by=clean_approver,
                 shared_principals=sorted_principals,
+                required_connectors=req_connectors,
+                target_engines=selected_targets,
+                distributed_apps=distributed_apps,
                 published_at=now,
             )
             session.add(reg_row)
@@ -710,23 +935,12 @@ class SkillWorkflowEngine:
             reg_row.eval_score = wf.eval_score
             reg_row.infosec_risk_level = wf.infosec_risk_level
             reg_row.shared_principals = sorted_principals
+            reg_row.required_connectors = req_connectors
+            reg_row.target_engines = selected_targets
+            reg_row.distributed_apps = distributed_apps
             reg_row.published_at = now
         wf.registry_id = reg_id
 
-        # Stage 5: Share the Skill from the Agent Platform Skill Registry
-        wf.current_stage = "SHARE_TO_APP"
-        _dist_scope, target_engines = resolve_target_engines_from_groups(
-            session=session,
-            skill=skill,
-            principals=sorted_principals,
-        )
-        share_skill_in_discovery_engine(
-            skill=skill,
-            principals=sorted_principals,
-            settings=self._settings,
-            registry_resource_name=reg_res_name,
-            target_engines=target_engines,
-        )
         skill.review_status = "APPROVED"
         skill.state = "ENABLED"
         skill.sharing_state = "SHARED"
@@ -734,6 +948,18 @@ class SkillWorkflowEngine:
         skill.iam_proposals = updated_proposals
         skill.shared_principals = sorted_principals
 
+        wf.templatized_instruction = param_instruction
+        wf.required_connectors = req_connectors
+        wf.requested_groups = req_groups
+        wf.distribution_scope = dist_scope
+        wf.target_engines = selected_targets
+        wf.target_app_evaluations = _evaluate_all_target_apps(
+            session=session,
+            skill=skill,
+            eval_result=dict(wf.eval_report or {}),
+            selected_targets=selected_targets,
+        )
+        wf.distributed_apps = distributed_apps
         wf.shared_in_ge = True
         wf.shared_principals = sorted_principals
         wf.current_stage = "COMPLETED"

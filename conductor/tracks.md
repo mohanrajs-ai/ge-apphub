@@ -19,3 +19,8 @@
 
 - [x] **Track: Automated Skill Evaluation, InfoSec Governance & Publishing Workflow Microservice**
   *Link: [./tracks/skill_governance_workflow_20261106/index.md](./tracks/skill_governance_workflow_20261106/index.md)*
+
+---
+
+- [x] **Track: Multi-App AI Skill Hub (Dev-to-Registry-to-Multi-App Governance Pipeline)**
+  *Link: [./tracks/multi_app_skill_hub_20261107/index.md](./tracks/multi_app_skill_hub_20261107/index.md)*

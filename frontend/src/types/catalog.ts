@@ -72,7 +72,7 @@ export interface SyncRunSummary {
   completed_at?: string | null;
 }
 
-export type PortalSection = 'apps' | 'skills' | 'agents';
+export type PortalSection = 'apps' | 'skills' | 'agents' | 'skill-governance';
 
 export interface SyncStatusResponse {
   sync_enabled: boolean;
@@ -120,6 +120,39 @@ export interface SkillTokenOptimization {
   recommendations?: string[];
 }
 
+export interface SkillRequiredConnector {
+  connector_id: string;
+  display_name: string;
+}
+
+export interface SkillTargetAppEvaluation {
+  engine_id: string;
+  app_display_name: string;
+  location: string;
+  connector_readiness: 'READY' | 'MISSING_CONNECTORS' | string;
+  matched_connectors: string[];
+  missing_connectors: string[];
+  data_store_count: number;
+  eval_score: number;
+  eval_status: string;
+  rendered_tokens: number;
+  optimized_tokens: number;
+  tokens_saved: number;
+  reduction_pct: number;
+  efficiency_grade: string;
+  selected_for_distribution?: boolean;
+}
+
+export interface SkillDistributedApp {
+  engine_id: string;
+  app_display_name: string;
+  location: string;
+  launch_url: string;
+  status: string;
+  sharing_scope: string;
+  distributed_at?: string;
+}
+
 export interface SkillWorkflowItem {
   workflow_id: string;
   skill_id: string;
@@ -147,7 +180,16 @@ export interface SkillWorkflowItem {
     summary?: string;
     checks?: SkillWorkflowCheck[];
     token_optimization?: SkillTokenOptimization;
+    templatized_instruction?: string;
+    required_connectors?: SkillRequiredConnector[];
   };
+  templatized_instruction?: string;
+  required_connectors?: SkillRequiredConnector[];
+  requested_groups?: string[];
+  distribution_scope?: 'SINGLE_APP' | 'MULTI_APP' | 'GLOBAL' | string;
+  target_engines?: string[];
+  target_app_evaluations?: SkillTargetAppEvaluation[];
+  distributed_apps?: SkillDistributedApp[];
   infosec_risk_level: string;
   infosec_status: string;
   infosec_report?: {
@@ -210,6 +252,9 @@ export interface SkillRegistryItem {
   infosec_risk_level: string;
   approved_by: string;
   shared_principals: string[];
+  required_connectors?: SkillRequiredConnector[];
+  target_engines?: string[];
+  distributed_apps?: SkillDistributedApp[];
   published_at?: string | null;
 }
 

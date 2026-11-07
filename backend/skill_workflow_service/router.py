@@ -96,6 +96,7 @@ def approve_skill_workflow(
         else user.email
     )
     notes = payload.notes if payload else ""
+    target_engines = payload.target_engines if payload else None
     eng = wf_engine.SkillWorkflowEngine(settings=config.get_settings())
     try:
         return eng.approve_workflow(
@@ -103,6 +104,7 @@ def approve_skill_workflow(
             skill_id=skill_id,
             approver_email=approver,
             notes=notes,
+            target_engines=target_engines,
         )
     except ValueError as exc:
         raise fastapi.HTTPException(
@@ -170,6 +172,9 @@ def list_registry_skills(
             infosec_risk_level=r.infosec_risk_level,
             approved_by=r.approved_by,
             shared_principals=list(r.shared_principals or []),
+            required_connectors=list(r.required_connectors or []),
+            target_engines=list(r.target_engines or [r.engine_id]),
+            distributed_apps=list(r.distributed_apps or []),
             published_at=(
                 r.published_at.isoformat() if r.published_at else None
             ),

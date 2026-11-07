@@ -179,6 +179,7 @@ class CatalogService:
                     location=row.location,
                     solution_type=row.solution_type,
                     allowed_roles=list(row.allowed_roles or []),
+                    data_store_ids=list(row.data_store_ids or []),
                     featured=row.featured,
                 )
             )
@@ -264,6 +265,7 @@ class CatalogService:
                     location=engine.location,
                     solution_type=engine.solution_type,
                     allowed_roles=allowed_roles,
+                    data_store_ids=list(engine.data_store_ids or []),
                     featured=meta.featured if meta else False,
                 )
             )

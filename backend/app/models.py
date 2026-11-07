@@ -26,6 +26,7 @@ class DiscoveredEngine(pydantic.BaseModel):
     app_type: str = "APP_TYPE_INTRANET"
     default_launch_url: str
     iam_principals: list[str] = pydantic.Field(default_factory=list)
+    data_store_ids: list[str] = pydantic.Field(default_factory=list)
 
 
 class AppEnrichmentMetadata(pydantic.BaseModel):
@@ -57,6 +58,7 @@ class CatalogApplication(pydantic.BaseModel):
     solution_type: str
     allowed_roles: list[str]
     featured: bool = False
+    data_store_ids: list[str] = pydantic.Field(default_factory=list)
 
 
 class CatalogResponse(pydantic.BaseModel):
@@ -148,7 +150,7 @@ class SkillSubfile(pydantic.BaseModel):
 
 
 class SkillWorkflowItem(pydantic.BaseModel):
-    """Represents the 5-stage governance workflow state for a GE skill."""
+    """Represents the 6-stage Multi-App AI Skill Hub workflow state."""
 
     workflow_id: str
     skill_id: str
@@ -160,6 +162,19 @@ class SkillWorkflowItem(pydantic.BaseModel):
     eval_score: int = 0
     eval_status: str = "PENDING"
     eval_report: dict[str, Any] = pydantic.Field(default_factory=dict)
+    templatized_instruction: str = ""
+    required_connectors: list[dict[str, str]] = pydantic.Field(
+        default_factory=list
+    )
+    requested_groups: list[str] = pydantic.Field(default_factory=list)
+    distribution_scope: str = "SINGLE_APP"
+    target_engines: list[str] = pydantic.Field(default_factory=list)
+    target_app_evaluations: list[dict[str, Any]] = pydantic.Field(
+        default_factory=list
+    )
+    distributed_apps: list[dict[str, Any]] = pydantic.Field(
+        default_factory=list
+    )
     infosec_risk_level: str = "LOW"
     infosec_status: str = "PENDING"
     infosec_report: dict[str, Any] = pydantic.Field(default_factory=dict)
@@ -224,6 +239,7 @@ class SkillApprovalRequest(pydantic.BaseModel):
 
     approver_email: str = "infosec-admin@mohanrajs.altostrat.com"
     notes: str = ""
+    target_engines: list[str] | None = None
 
 
 class SkillWorkflowListResponse(pydantic.BaseModel):
@@ -250,6 +266,13 @@ class SkillRegistryItem(pydantic.BaseModel):
     infosec_risk_level: str = "LOW"
     approved_by: str = ""
     shared_principals: list[str] = pydantic.Field(default_factory=list)
+    required_connectors: list[dict[str, str]] = pydantic.Field(
+        default_factory=list
+    )
+    target_engines: list[str] = pydantic.Field(default_factory=list)
+    distributed_apps: list[dict[str, Any]] = pydantic.Field(
+        default_factory=list
+    )
     published_at: str | None = None
 
 

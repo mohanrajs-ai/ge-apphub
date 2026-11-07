@@ -7,20 +7,27 @@ import {
   BookOpen,
   CheckCircle2,
   Clock,
+  Copy,
+  ExternalLink,
   FileCode,
   FolderGit2,
+  Globe,
+  Layers,
   Mail,
   PackageCheck,
+  Plug,
   Search,
   ShieldAlert,
   ShieldCheck,
   Sparkles,
+  Terminal,
   UserCheck,
   Users,
   X,
   XCircle,
 } from 'lucide-react';
 import {
+  CatalogApplication,
   DiscoveredSkill,
   SkillRegistryItem,
   SkillWorkflowItem,
@@ -34,7 +41,11 @@ export interface SkillsSectionProps {
   pendingReviewCount: number;
   approvedCount: number;
   loading: boolean;
-  onApproveSkill?: (skillId: string) => void;
+  mode?: 'user-hub' | 'admin-governance';
+  userApps?: CatalogApplication[];
+  isAdmin?: boolean;
+  onOpenGovernance?: () => void;
+  onApproveSkill?: (skillId: string, targetEngines?: string[]) => void;
   onRejectSkill?: (skillId: string) => void;
 }
 
@@ -183,6 +194,10 @@ export function SkillsSection({
   pendingReviewCount,
   approvedCount,
   loading,
+  mode = 'admin-governance',
+  userApps = [],
+  isAdmin = false,
+  onOpenGovernance,
   onApproveSkill,
   onRejectSkill,
 }: SkillsSectionProps): React.ReactElement {
@@ -192,7 +207,49 @@ export function SkillsSection({
   const [selectedSkill, setSelectedSkill] = useState<DiscoveredSkill | null>(
     null,
   );
+  const [showTemplatizedMd, setShowTemplatizedMd] = useState<boolean>(false);
+  const [copiedSkillId, setCopiedSkillId] = useState<string | null>(null);
+  const [customTargetsBySkill, setCustomTargetsBySkill] = useState<
+    Record<string, string[]>
+  >({});
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+
+  function getSelectedTargetsForSkill(skill: DiscoveredSkill): string[] {
+    if (customTargetsBySkill[skill.skill_id]) {
+      return customTargetsBySkill[skill.skill_id];
+    }
+    const wfTargets = skill.workflow?.target_engines;
+    if (wfTargets && wfTargets.length > 0) {
+      return wfTargets;
+    }
+    return [skill.engine_id];
+  }
+
+  function toggleTargetEngineForSkill(
+    skill: DiscoveredSkill,
+    engineId: string,
+  ): void {
+    const current = new Set(getSelectedTargetsForSkill(skill));
+    if (current.has(engineId)) {
+      if (current.size > 1) {
+        current.delete(engineId);
+      }
+    } else {
+      current.add(engineId);
+    }
+    setCustomTargetsBySkill((prev) => ({
+      ...prev,
+      [skill.skill_id]: Array.from(current).sort(),
+    }));
+  }
+
+  function handleCopyTrigger(skillName: string, skillId: string): void {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      void navigator.clipboard.writeText(`/${skillName}`);
+    }
+    setCopiedSkillId(skillId);
+    window.setTimeout(() => setCopiedSkillId(null), 1800);
+  }
 
   const engineOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -245,7 +302,12 @@ export function SkillsSection({
     }
     setActionBusyId(skillId);
     try {
-      await Promise.resolve(onApproveSkill(skillId));
+      const customTargets = customTargetsBySkill[skillId];
+      if (customTargets && customTargets.length > 0) {
+        await Promise.resolve(onApproveSkill(skillId, customTargets));
+      } else {
+        await Promise.resolve(onApproveSkill(skillId));
+      }
     } finally {
       setActionBusyId(null);
     }
@@ -261,6 +323,290 @@ export function SkillsSection({
     } finally {
       setActionBusyId(null);
     }
+  }
+
+  const publishedSkillsForUser = useMemo(() => {
+    const needle = searchQuery.trim().toLowerCase();
+    const userEngineIds = new Set(userApps.map((a) => a.engine_id));
+    return skills.filter((skill) => {
+      if (skill.review_status !== 'APPROVED') {
+        return false;
+      }
+      const targetEngines = skill.workflow?.target_engines?.length
+        ? skill.workflow.target_engines
+        : [skill.engine_id];
+      if (
+        userEngineIds.size > 0 &&
+        !targetEngines.some((eng) => userEngineIds.has(eng))
+      ) {
+        return false;
+      }
+      if (selectedEngineId && !targetEngines.includes(selectedEngineId)) {
+        return false;
+      }
+      if (!needle) {
+        return true;
+      }
+      const searchable = [
+        skill.display_name,
+        skill.description,
+        skill.engine_id,
+        skill.app_display_name,
+        ...targetEngines,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return searchable.includes(needle);
+    });
+  }, [skills, userApps, selectedEngineId, searchQuery]);
+
+  if (mode === 'user-hub') {
+    const appLookup = new Map(userApps.map((a) => [a.engine_id, a]));
+    return (
+      <div>
+        <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5">
+              <h2 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+                Enterprise AI Skill Hub
+              </h2>
+              <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                InfoSec Verified
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-slate-600 dark:text-slate-400">
+              Browse approved, multi-app AI skills published from the Agent
+              Platform Skill Registry and available across your Gemini
+              Enterprise applications.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50/80 px-3.5 py-2 text-xs dark:border-emerald-900/60 dark:bg-emerald-950/40">
+              <span className="font-semibold text-emerald-900 dark:text-emerald-200">
+                Published Skills:{' '}
+              </span>
+              <span className="font-bold text-emerald-700 dark:text-emerald-300">
+                {publishedSkillsForUser.length}
+              </span>
+            </div>
+            {isAdmin && onOpenGovernance && (
+              <button
+                type="button"
+                onClick={onOpenGovernance}
+                className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-indigo-500"
+              >
+                <ShieldCheck className="h-3.5 w-3.5" aria-hidden="true" />
+                Open Admin Skill Governance Console
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <div className="relative min-w-[240px] flex-1">
+            <Search
+              className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400"
+              aria-hidden="true"
+            />
+            <input
+              type="search"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Search published skills by name, trigger, or capability..."
+              aria-label="Search published skills"
+              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-100"
+            />
+          </div>
+        </div>
+
+        {publishedSkillsForUser.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center dark:border-slate-800 dark:bg-slate-900">
+            <Sparkles className="mx-auto h-10 w-10 text-slate-400" />
+            <h3 className="mt-3 text-base font-semibold text-slate-900 dark:text-white">
+              No published skills available yet
+            </h3>
+            <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+              Skills appear here automatically once they pass Multi-App
+              Evaluation, InfoSec Review, and Registry Distribution.
+            </p>
+          </div>
+        ) : (
+          <div className="grid gap-5 lg:grid-cols-1">
+            {publishedSkillsForUser.map((skill) => {
+              const wf = skill.workflow;
+              const connectors = wf?.required_connectors ?? [];
+              const targetEngines = wf?.target_engines?.length
+                ? wf.target_engines
+                : [skill.engine_id];
+              const scopeLabel = wf?.distribution_scope || 'SINGLE_APP';
+              return (
+                <article
+                  key={skill.skill_id}
+                  className="rounded-2xl border border-slate-200/90 bg-white p-6 shadow-sm transition hover:shadow-md dark:border-slate-800 dark:bg-slate-900"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex items-start gap-3.5">
+                      <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-300">
+                        <Sparkles className="h-5 w-5" aria-hidden="true" />
+                      </div>
+                      <div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                            {skill.display_name}
+                          </h3>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleCopyTrigger(
+                                skill.display_name,
+                                skill.skill_id,
+                              )
+                            }
+                            title="Copy slash trigger command"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-200 bg-indigo-50 px-2.5 py-0.5 font-mono text-xs font-semibold text-indigo-800 transition hover:bg-indigo-100 dark:border-indigo-900/60 dark:bg-indigo-950/70 dark:text-indigo-200"
+                          >
+                            <Terminal className="h-3 w-3" />
+                            /{skill.display_name}
+                            <Copy className="h-3 w-3 opacity-70" />
+                            {copiedSkillId === skill.skill_id && (
+                              <span className="text-[10px] text-emerald-600 dark:text-emerald-300">
+                                Copied!
+                              </span>
+                            )}
+                          </button>
+                          <span className="rounded-md bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                            {scopeLabel}
+                          </span>
+                        </div>
+                        <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">
+                          Registry ID:{' '}
+                          <span className="font-mono">
+                            {wf?.registry_id || 'private-daily-morning-summary'}
+                          </span>
+                        </p>
+                      </div>
+                    </div>
+
+                    <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-300 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/80 dark:text-emerald-200">
+                      <ShieldCheck className="h-3.5 w-3.5 text-emerald-600 dark:text-emerald-400" />
+                      Published • Score {wf?.eval_score ?? 95}/100
+                    </span>
+                  </div>
+
+                  <p className="mt-3.5 text-sm leading-relaxed text-slate-600 dark:text-slate-300">
+                    {skill.description}
+                  </p>
+
+                  {connectors.length > 0 && (
+                    <div className="mt-4 flex flex-wrap items-center gap-2">
+                      <span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 dark:text-slate-400">
+                        <Plug className="h-3.5 w-3.5 text-indigo-500" />
+                        Connected Data Sources:
+                      </span>
+                      {connectors.map((c) => (
+                        <span
+                          key={c.connector_id}
+                          className="rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-700 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-300"
+                        >
+                          {c.display_name}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <div className="mt-4 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3.5 dark:border-slate-800 dark:bg-slate-950/60">
+                    <p className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-slate-700 dark:text-slate-200">
+                      <Globe className="h-3.5 w-3.5 text-blue-500" />
+                      Launch Skill in Your Authorized Gemini Enterprise Apps:
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {targetEngines.map((engId) => {
+                        const matchedApp = appLookup.get(engId);
+                        const label = matchedApp?.display_name || engId;
+                        const url = matchedApp?.launch_url;
+                        return url ? (
+                          <a
+                            key={engId}
+                            href={url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white shadow-2xs transition hover:bg-blue-500"
+                          >
+                            <span>Launch in {label}</span>
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span
+                            key={engId}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200"
+                          >
+                            {label}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3.5 dark:border-slate-800">
+                    <span className="text-xs text-slate-400">
+                      Type <code className="font-mono">/{skill.display_name}</code>{' '}
+                      in any target GE App assistant chat to run this skill.
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowTemplatizedMd(false);
+                        setSelectedSkill(skill);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-slate-900 px-3.5 py-2 text-xs font-semibold text-white transition hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700"
+                    >
+                      <BookOpen className="h-3.5 w-3.5" />
+                      View Skill Guide
+                    </button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+
+        {selectedSkill && (
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Skill details for ${selectedSkill.display_name}`}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/60 p-4 backdrop-blur-xs"
+          >
+            <div className="flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-900">
+              <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-800">
+                <div>
+                  <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                    {selectedSkill.display_name}
+                  </h3>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    Published Enterprise Skill Guide
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedSkill(null)}
+                  aria-label="Close skill details"
+                  className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              <div className="space-y-4 overflow-y-auto p-6">
+                <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100 dark:border-slate-800">
+                  {selectedSkill.instruction}
+                </pre>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -651,6 +997,148 @@ export function SkillsSection({
                       {/* 5-Stage Visual Workflow Stepper */}
                       <WorkflowStepper workflow={skill.workflow} />
 
+                      {/* Multi-App Environment Templatizer, Connectors & Readiness Matrix */}
+                      {skill.workflow && (
+                        <div className="mt-4 rounded-xl border border-indigo-200/80 bg-indigo-50/40 p-3.5 text-xs dark:border-indigo-900/50 dark:bg-indigo-950/20">
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="inline-flex items-center gap-1.5 font-bold uppercase tracking-wider text-indigo-900 dark:text-indigo-200">
+                              <Layers className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+                              Multi-App Skill Hub: Environment Templatizer &
+                              Target Readiness
+                            </span>
+                            <div className="flex flex-wrap items-center gap-1.5">
+                              <span className="rounded-md bg-indigo-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300">
+                                Scope:{' '}
+                                {skill.workflow.distribution_scope ||
+                                  'SINGLE_APP'}
+                              </span>
+                              <span className="rounded-md bg-emerald-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                                {'{{engine_id}}'} Parameterized
+                              </span>
+                            </div>
+                          </div>
+
+                          {(skill.workflow.required_connectors ?? []).length >
+                            0 && (
+                            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                Required Connectors:
+                              </span>
+                              {skill.workflow.required_connectors?.map((c) => (
+                                <span
+                                  key={c.connector_id}
+                                  className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-white px-2 py-0.5 font-mono text-[11px] font-medium text-indigo-900 dark:border-indigo-800 dark:bg-slate-900 dark:text-indigo-200"
+                                >
+                                  <Plug className="h-3 w-3 text-indigo-500" />
+                                  {c.display_name} ({c.connector_id})
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {(skill.workflow.requested_groups ?? []).length >
+                            0 && (
+                            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                              <span className="font-semibold text-slate-600 dark:text-slate-300">
+                                Mapped Access Groups:
+                              </span>
+                              {skill.workflow.requested_groups?.map((grp) => (
+                                <span
+                                  key={grp}
+                                  className="rounded-md bg-slate-200/80 px-2 py-0.5 font-mono text-[11px] text-slate-800 dark:bg-slate-800 dark:text-slate-200"
+                                >
+                                  {grp}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+
+                          {(skill.workflow.target_app_evaluations ?? []).length >
+                            0 && (
+                            <div className="mt-3">
+                              <p className="mb-1.5 font-semibold text-slate-700 dark:text-slate-200">
+                                Per-Target-App Evaluation & Connector Readiness
+                                Matrix (Select Target GE Apps for Distribution):
+                              </p>
+                              <div className="grid gap-2 sm:grid-cols-2">
+                                {skill.workflow.target_app_evaluations?.map(
+                                  (appEval) => {
+                                    const selectedTargets =
+                                      getSelectedTargetsForSkill(skill);
+                                    const isSelected = selectedTargets.includes(
+                                      appEval.engine_id,
+                                    );
+                                    const isReady =
+                                      appEval.connector_readiness === 'READY';
+                                    return (
+                                      <label
+                                        key={appEval.engine_id}
+                                        className={`flex cursor-pointer items-start justify-between gap-2 rounded-lg border p-2.5 transition ${
+                                          isSelected
+                                            ? 'border-indigo-400 bg-white shadow-2xs dark:border-indigo-700 dark:bg-slate-900'
+                                            : 'border-slate-200/80 bg-white/60 opacity-80 dark:border-slate-800 dark:bg-slate-900/50'
+                                        }`}
+                                      >
+                                        <div className="flex items-start gap-2">
+                                          <input
+                                            type="checkbox"
+                                            checked={isSelected}
+                                            onChange={() =>
+                                              toggleTargetEngineForSkill(
+                                                skill,
+                                                appEval.engine_id,
+                                              )
+                                            }
+                                            className="mt-0.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
+                                          />
+                                          <div>
+                                            <p className="font-semibold text-slate-900 dark:text-white">
+                                              {appEval.app_display_name}
+                                            </p>
+                                            <p className="font-mono text-[10px] text-slate-500">
+                                              {appEval.engine_id} •{' '}
+                                              {appEval.data_store_count}{' '}
+                                              datastores
+                                            </p>
+                                            {!isReady &&
+                                              appEval.missing_connectors
+                                                .length > 0 && (
+                                                <p className="mt-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-400">
+                                                  Missing connector:{' '}
+                                                  {appEval.missing_connectors.join(
+                                                    ', ',
+                                                  )}
+                                                </p>
+                                              )}
+                                          </div>
+                                        </div>
+                                        <div className="text-right">
+                                          <span
+                                            className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-bold ${
+                                              isReady
+                                                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300'
+                                                : 'bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300'
+                                            }`}
+                                          >
+                                            {isReady
+                                              ? 'READY'
+                                              : 'MISSING CONNECTOR'}
+                                          </span>
+                                          <p className="mt-0.5 font-mono text-[10px] text-slate-600 dark:text-slate-300">
+                                            Score {appEval.eval_score}/100 •{' '}
+                                            {appEval.optimized_tokens} tok
+                                          </p>
+                                        </div>
+                                      </label>
+                                    );
+                                  },
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      )}
+
                       {/* Governance & Share Request Details Box */}
                       <div className="mt-4 space-y-2 rounded-xl border border-slate-200/80 bg-slate-50/80 p-3.5 text-xs dark:border-slate-800 dark:bg-slate-950/60">
                         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -914,11 +1402,41 @@ export function SkillsSection({
               </div>
 
               <div>
-                <h4 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
-                  Skill Instruction (SKILL.md)
-                </h4>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400">
+                    Skill Instruction (SKILL.md)
+                  </h4>
+                  {selectedSkill.workflow?.templatized_instruction && (
+                    <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-[11px] dark:border-slate-800 dark:bg-slate-950">
+                      <button
+                        type="button"
+                        onClick={() => setShowTemplatizedMd(false)}
+                        className={`rounded-md px-2.5 py-1 font-semibold transition ${
+                          !showTemplatizedMd
+                            ? 'bg-white text-slate-900 shadow-2xs dark:bg-slate-800 dark:text-white'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        Dev App SKILL.md
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowTemplatizedMd(true)}
+                        className={`rounded-md px-2.5 py-1 font-semibold transition ${
+                          showTemplatizedMd
+                            ? 'bg-indigo-600 text-white shadow-2xs'
+                            : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        Templatized Registry ({'{{engine_id}}'})
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <pre className="max-h-96 overflow-auto whitespace-pre-wrap rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-xs leading-relaxed text-slate-100 dark:border-slate-800">
-                  {selectedSkill.instruction ||
+                  {(showTemplatizedMd
+                    ? selectedSkill.workflow?.templatized_instruction
+                    : selectedSkill.instruction) ||
                     'No SKILL.md instruction found.'}
                 </pre>
               </div>

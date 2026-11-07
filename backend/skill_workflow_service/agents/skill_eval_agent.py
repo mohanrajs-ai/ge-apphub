@@ -1,8 +1,269 @@
-"""Stage 1: Local ADK Skill Evaluation Agent for Gemini Enterprise Skills."""
+"""Stage 1 & 2: ADK Skill Evaluation, Templatization & Multi-App Readiness."""
 
 import re
 from collections import Counter
 from typing import Any
+
+CONNECTOR_CATALOG: tuple[tuple[str, str, tuple[str, ...]], ...] = (
+    (
+        "outlook-calendar",
+        "Outlook Calendar",
+        ("calendar", "m365-ol", "outlook"),
+    ),
+    (
+        "outlook-email",
+        "Outlook Email",
+        ("mail", "m365-ol", "outlook"),
+    ),
+    (
+        "teams",
+        "Microsoft Teams",
+        ("teams", "channel-message", "chat-message"),
+    ),
+    (
+        "onedrive",
+        "Microsoft OneDrive",
+        ("onedrive", "m365-od"),
+    ),
+    (
+        "sharepoint",
+        "Microsoft SharePoint",
+        ("sharepoint", "m365-sp"),
+    ),
+    (
+        "enterprise-knowledge",
+        "Enterprise Knowledge Store",
+        ("enterprise-knowledge", "knowledge-ds"),
+    ),
+)
+
+
+def templatize_skill_environment(instruction: str) -> str:
+    """ADK Tool: Replaces app-specific engine & datastore IDs with variables.
+
+    Normalizes `/engines/{dev_engine_id}/` into `/engines/{{engine_id}}/` and
+    `{dev_engine_id}-enterprise-knowledge-ds-01` into
+    `{{app_knowledge_datastore_id}}` so a single governed SKILL.md artifact can
+    be published to the central Skill Registry and rendered per target GE App.
+
+    Args:
+        instruction: Raw SKILL.md markdown instruction text from the Dev App.
+
+    Returns:
+        Templatized SKILL.md markdown string.
+    """
+    raw = (instruction or "").strip()
+    if not raw:
+        return ""
+    templatized = re.sub(
+        r"/engines/[^/\s`'\"()]+/",
+        "/engines/{{engine_id}}/",
+        raw,
+    )
+    templatized = re.sub(
+        r"[a-zA-Z0-9_-]+-enterprise-knowledge-ds-01",
+        "{{app_knowledge_datastore_id}}",
+        templatized,
+    )
+    return templatized
+
+
+def render_skill_for_engine(
+    templatized_instruction: str,
+    target_engine_id: str,
+) -> str:
+    """Renders a templatized SKILL.md instruction for a specific target GE App.
+
+    Args:
+        templatized_instruction: SKILL.md containing `{{engine_id}}` variables.
+        target_engine_id: Target Discovery Engine ID (e.g. `finance-app-01`).
+
+    Returns:
+        Engine-specific SKILL.md markdown string.
+    """
+    rendered = (templatized_instruction or "").replace(
+        "{{engine_id}}", target_engine_id
+    )
+    rendered = rendered.replace(
+        "{{app_knowledge_datastore_id}}",
+        f"{target_engine_id}-enterprise-knowledge-ds-01",
+    )
+    return rendered
+
+
+def extract_required_connectors(instruction: str) -> list[dict[str, str]]:
+    """ADK Tool: Identifies 1P/3P enterprise connectors required by SKILL.md.
+
+    Args:
+        instruction: Raw or templatized SKILL.md markdown text.
+
+    Returns:
+        List of connector metadata dicts (`connector_id`, `display_name`).
+    """
+    text = (instruction or "").lower()
+    found: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    explicit_agents = re.findall(r"/agents/([a-z0-9_-]+)", text)
+    for agent_slug in explicit_agents:
+        for cid, label, _patterns in CONNECTOR_CATALOG:
+            if cid == agent_slug and cid not in seen:
+                seen.add(cid)
+                found.append(
+                    {
+                        "connector_id": cid,
+                        "display_name": label,
+                    }
+                )
+
+    keyword_checks: tuple[tuple[str, tuple[str, ...]], ...] = (
+        ("outlook-calendar", ("outlook-calendar", "outlook calendar")),
+        ("outlook-email", ("outlook-email", "outlook email", "unread email")),
+        ("teams", ("/agents/teams", "microsoft teams", "teams mention")),
+        ("onedrive", ("onedrive", "one drive")),
+        ("sharepoint", ("sharepoint", "share point")),
+        (
+            "enterprise-knowledge",
+            ("enterprise-knowledge-ds", "app_knowledge_datastore_id"),
+        ),
+    )
+    label_map = {cid: label for cid, label, _ in CONNECTOR_CATALOG}
+    for cid, keywords in keyword_checks:
+        if cid in seen:
+            continue
+        if any(kw in text for kw in keywords):
+            seen.add(cid)
+            found.append(
+                {
+                    "connector_id": cid,
+                    "display_name": label_map.get(cid, cid),
+                }
+            )
+    return found
+
+
+def _default_datastores_for_engine(engine_id: str) -> list[str]:
+    """Returns fallback datastore IDs when an engine row predates sync."""
+    clean = engine_id.strip().lower()
+    if "new5" in clean:
+        return [
+            "onedrive_1791378339625_file",
+            "outlook_1791378136223_mail",
+            "outlook_1791378136223_calendar",
+            "sharepoint_1791387159192_file",
+        ]
+    return [
+        "m365-od-test_file",
+        "m365-ol-test_calendar",
+        "m365-ol-test_contact",
+        "m365-ol-test_mail",
+        "m365-ol-test_mail-attachment",
+        "m365-sp_file",
+        "m365-sp_page",
+        "m365-teams-test_channel-message",
+        "m365-teams-test_chat-message",
+        f"{engine_id}-enterprise-knowledge-ds-01",
+    ]
+
+
+def evaluate_target_apps_readiness(
+    display_name: str,
+    description: str,
+    instruction: str,
+    target_apps: list[dict[str, Any]],
+    base_eval: dict[str, Any] | None = None,
+) -> list[dict[str, Any]]:
+    """Stage 2 ADK Tool: Evaluates skill readiness & tokens on each target app.
+
+    Verifies that every target GE App has the required connectors/datastores
+    attached, renders the templatized SKILL.md for that target engine, and
+    computes per-app quality & token optimization metrics.
+
+    Args:
+        display_name: Skill display name.
+        description: Skill description.
+        instruction: Raw or templatized SKILL.md instruction.
+        target_apps: List of target GE App dicts (`engine_id`, `display_name`,
+            `location`, `data_store_ids`).
+        base_eval: Optional precomputed Stage 1 evaluation dict.
+
+    Returns:
+        List of per-target-app evaluation result dictionaries.
+    """
+    templatized = templatize_skill_environment(instruction)
+    required = extract_required_connectors(instruction)
+    pattern_map = {
+        cid: patterns for cid, _label, patterns in CONNECTOR_CATALOG
+    }
+    token_opt = (
+        base_eval.get("token_optimization")
+        if base_eval and isinstance(base_eval.get("token_optimization"), dict)
+        else evaluate_token_optimization(display_name, description, instruction)
+    )
+    base_score = int(base_eval.get("score", 95)) if base_eval else 95
+
+    results: list[dict[str, Any]] = []
+    for app in target_apps:
+        eng_id = str(app.get("engine_id") or "").strip()
+        if not eng_id:
+            continue
+        app_name = str(app.get("display_name") or eng_id)
+        location = str(app.get("location") or "global")
+        raw_ds = app.get("data_store_ids")
+        ds_ids = (
+            [str(x).lower() for x in raw_ds if str(x).strip()]
+            if isinstance(raw_ds, list) and raw_ds
+            else [
+                x.lower() for x in _default_datastores_for_engine(eng_id)
+            ]
+        )
+        ds_joined = " ".join(ds_ids)
+
+        matched: list[str] = []
+        missing: list[str] = []
+        for req in required:
+            cid = req["connector_id"]
+            patterns = pattern_map.get(cid, (cid,))
+            if any(pat in ds_joined for pat in patterns):
+                matched.append(cid)
+            else:
+                missing.append(cid)
+
+        is_ready = len(missing) == 0
+        penalty = len(missing) * 20
+        app_score = max(40, base_score - penalty)
+        rendered_md = render_skill_for_engine(templatized, eng_id)
+        rendered_tokens = _estimate_tokens(rendered_md) + int(
+            token_opt.get("discovery_tokens", 55)
+        )
+
+        results.append(
+            {
+                "engine_id": eng_id,
+                "app_display_name": app_name,
+                "location": location,
+                "connector_readiness": (
+                    "READY" if is_ready else "MISSING_CONNECTORS"
+                ),
+                "matched_connectors": matched,
+                "missing_connectors": missing,
+                "data_store_count": len(ds_ids),
+                "eval_score": app_score,
+                "eval_status": (
+                    "PASSED" if is_ready and app_score >= 70 else "WARNING"
+                ),
+                "rendered_tokens": rendered_tokens,
+                "optimized_tokens": int(
+                    token_opt.get("optimized_total_tokens", rendered_tokens)
+                ),
+                "tokens_saved": int(token_opt.get("tokens_saved", 0)),
+                "reduction_pct": float(token_opt.get("reduction_pct", 0.0)),
+                "efficiency_grade": str(
+                    token_opt.get("efficiency_grade", "A")
+                ),
+            }
+        )
+    return results
 
 
 def _estimate_tokens(text: str) -> int:
@@ -199,9 +460,12 @@ class SkillEvaluationAdkAgent:
                 "(0-100) and pass/fail determination."
             ),
             "tools": [
+                templatize_skill_environment,
+                extract_required_connectors,
                 inspect_skill_markdown_structure,
                 evaluate_tool_references,
                 evaluate_token_optimization,
+                evaluate_target_apps_readiness,
             ],
         }
 
@@ -223,6 +487,8 @@ class SkillEvaluationAdkAgent:
         Returns:
             Evaluation report with `score`, `passed`, `checks`, and `summary`.
         """
+        templatized = templatize_skill_environment(instruction)
+        required_connectors = extract_required_connectors(instruction)
         struct = inspect_skill_markdown_structure(instruction)
         tools_check = evaluate_tool_references(instruction)
         token_opt = evaluate_token_optimization(
@@ -330,6 +596,8 @@ class SkillEvaluationAdkAgent:
             "verdict": "PASSED" if passed else "FAILED",
             "checks": checks,
             "token_optimization": token_opt,
+            "templatized_instruction": templatized,
+            "required_connectors": required_connectors,
             "summary": (
                 f"Skill '{display_name}' passed ADK evaluation with score "
                 f"{score}/100 ({token_opt['total_tokens']} -> "

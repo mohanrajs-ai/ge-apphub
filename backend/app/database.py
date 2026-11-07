@@ -96,6 +96,41 @@ def get_engine(database_url: str | None = None) -> sqlalchemy.Engine:
     return engine
 
 
+def _ensure_schema_migrations(engine: sqlalchemy.Engine) -> None:
+    """Adds newly introduced columns to existing tables if missing."""
+    migrations = [
+        ("ge_applications", "data_store_ids", "JSON DEFAULT '[]'"),
+        ("skill_workflows", "templatized_instruction", "TEXT DEFAULT ''"),
+        ("skill_workflows", "required_connectors", "JSON DEFAULT '[]'"),
+        ("skill_workflows", "requested_groups", "JSON DEFAULT '[]'"),
+        (
+            "skill_workflows",
+            "distribution_scope",
+            "VARCHAR(64) DEFAULT 'SINGLE_APP'",
+        ),
+        ("skill_workflows", "target_engines", "JSON DEFAULT '[]'"),
+        ("skill_workflows", "target_app_evaluations", "JSON DEFAULT '[]'"),
+        ("skill_workflows", "distributed_apps", "JSON DEFAULT '[]'"),
+        ("skill_registry", "required_connectors", "JSON DEFAULT '[]'"),
+        ("skill_registry", "target_engines", "JSON DEFAULT '[]'"),
+        ("skill_registry", "distributed_apps", "JSON DEFAULT '[]'"),
+    ]
+    inspector = sqlalchemy.inspect(engine)
+    existing_tables = set(inspector.get_table_names())
+    with engine.begin() as conn:
+        for table_name, col_name, col_def in migrations:
+            if table_name not in existing_tables:
+                continue
+            cols = {c["name"] for c in inspector.get_columns(table_name)}
+            if col_name not in cols:
+                conn.execute(
+                    sqlalchemy.text(
+                        f"ALTER TABLE {table_name} ADD COLUMN {col_name} "
+                        f"{col_def}"
+                    )
+                )
+
+
 def init_db(database_url: str | None = None) -> sqlalchemy.Engine:
     """Creates all database tables if they do not already exist.
 
@@ -107,6 +142,7 @@ def init_db(database_url: str | None = None) -> sqlalchemy.Engine:
     """
     engine = get_engine(database_url=database_url)
     db_models.Base.metadata.create_all(bind=engine)
+    _ensure_schema_migrations(engine)
     return engine
 
 

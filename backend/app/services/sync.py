@@ -156,6 +156,7 @@ class CatalogSyncService:
                         industry_vertical=engine.industry_vertical,
                         app_type=engine.app_type,
                         iam_principals=list(engine.iam_principals),
+                        data_store_ids=list(engine.data_store_ids),
                         allowed_roles=list(allowed_roles),
                         featured=meta.featured if meta else False,
                         last_synced_at=now,
@@ -183,6 +184,7 @@ class CatalogSyncService:
                     app_row.industry_vertical = engine.industry_vertical
                     app_row.app_type = engine.app_type
                     app_row.iam_principals = list(engine.iam_principals)
+                    app_row.data_store_ids = list(engine.data_store_ids)
                     app_row.allowed_roles = list(allowed_roles)
                     app_row.featured = meta.featured if meta else False
                     app_row.last_synced_at = now
