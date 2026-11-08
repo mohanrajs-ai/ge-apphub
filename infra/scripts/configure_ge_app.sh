@@ -147,6 +147,73 @@ render_engine_payload() {
     }'
 }
 
+render_engine_api_payload() {
+  local common_ds_json
+  common_ds_json="$(resolve_common_connector_datastore_ids)"
+  local disable_agent_sharing="FEATURE_STATE_ON"
+  if [[ "${GE_ALLOW_AGENT_SHARING:-false}" == "true" ]]; then
+    disable_agent_sharing="FEATURE_STATE_OFF"
+  fi
+  local sharing_without_approval="FEATURE_STATE_OFF"
+  if [[ "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" == "false" ]]; then
+    sharing_without_approval="FEATURE_STATE_ON"
+  fi
+  jq -n \
+    --arg displayName "${GE_APP_DISPLAY_NAME}" \
+    --arg solutionType "${GE_SOLUTION_TYPE:-SOLUTION_TYPE_SEARCH}" \
+    --arg appType "${GE_APP_TYPE:-APP_TYPE_INTRANET}" \
+    --arg vertical "${GE_INDUSTRY_VERTICAL:-GENERIC}" \
+    --arg dsId "${GE_DATA_STORE_ID}" \
+    --argjson commonDs "${common_ds_json}" \
+    --arg company "${GE_COMPANY_NAME:-Enterprise}" \
+    --arg tier "${GE_SEARCH_TIER:-SEARCH_TIER_ENTERPRISE}" \
+    --arg featAgentGallery "${GE_FEATURE_AGENT_GALLERY:-FEATURE_STATE_ON}" \
+    --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
+    --arg disableAgentSharing "${disable_agent_sharing}" \
+    --arg sharingWithoutApproval "${sharing_without_approval}" \
+    --arg featPromptGallery "${GE_FEATURE_PROMPT_GALLERY:-FEATURE_STATE_ON}" \
+    --arg featModelSelector "${GE_FEATURE_MODEL_SELECTOR:-FEATURE_STATE_ON}" \
+    --arg featNotebookLm "${GE_FEATURE_NOTEBOOK_LM:-FEATURE_STATE_ON}" \
+    --arg featPeopleSearch "${GE_FEATURE_PEOPLE_SEARCH:-FEATURE_STATE_ON}" \
+    --arg featAudio "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
+    --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
+    --argjson enableObs "${GE_ENABLE_OBSERVABILITY:-true}" \
+    '{
+      displayName: $displayName,
+      solutionType: $solutionType,
+      appType: $appType,
+      industryVertical: $vertical,
+      dataStoreIds: (([$dsId] + $commonDs) | map(select(length > 0)) | unique),
+      commonConfig: {companyName: $company},
+      searchEngineConfig: {searchTier: $tier, searchAddOns: ["SEARCH_ADD_ON_LLM"]},
+      features: {
+        "agent-gallery": $featAgentGallery,
+        "no-code-agent-builder": $featNoCodeBuilder,
+        "disable-agent-sharing": $disableAgentSharing,
+        "agent-sharing-without-admin-approval": $sharingWithoutApproval,
+        "enable-end-user-sharing-with-groups": "FEATURE_STATE_OFF",
+        "workflow-agents": "FEATURE_STATE_ON",
+        "prompt-gallery": $featPromptGallery,
+        "model-selector": $featModelSelector,
+        "notebook-lm": $featNotebookLm,
+        "people-search": $featPeopleSearch,
+        "people-search-org-chart": $featPeopleSearch,
+        "bi-directional-audio": $featAudio,
+        "feedback": "FEATURE_STATE_ON",
+        "personalization-memory": "FEATURE_STATE_ON",
+        "cross-product-intelligence": "FEATURE_STATE_ON",
+        "disable-canvas": "FEATURE_STATE_OFF",
+        "session-sharing": "FEATURE_STATE_OFF"
+      },
+      knowledgeGraphConfig: {
+        enablePrivateKnowledgeGraph: $enablePkg
+      },
+      observabilityConfig: {
+        observabilityEnabled: $enableObs
+      }
+    }'
+}
+
 ensure_engine_common_connectors_attached() {
   if [[ "${GE_ENABLE_COMMON_CONNECTORS:-true}" == "false" ]]; then
     return 0
@@ -184,7 +251,7 @@ ensure_engine_common_connectors_attached() {
     log_info "Upgrading single-datastore Engine '${GE_APP_ID}' to Multi-Data-Store Engine with Common Connectors..."
     ge_curl_request "DELETE" "${engine_url}" "" "true" >/dev/null
     local full_eng_payload
-    full_eng_payload="$(render_engine_payload)"
+    full_eng_payload="$(render_engine_api_payload)"
     ge_curl_request "POST" "${base_v1alpha}/${col_parent}/engines?engineId=${GE_APP_ID}" "${full_eng_payload}" >/dev/null
     log_ok "Engine '${GE_APP_ID}' upgraded to Multi-Data-Store Engine with Common Connectors."
   else
@@ -196,17 +263,14 @@ ensure_engine_common_connectors_attached() {
 }
 
 render_assistant_payload() {
+  local web_type="${GE_WEB_GROUNDING_TYPE:-WEB_GROUNDING_TYPE_GOOGLE_SEARCH}"
+  if [[ "${GE_ENABLE_WEB_SEARCH_GROUNDING:-true}" == "false" ]]; then
+    web_type="WEB_GROUNDING_TYPE_DISABLED"
+  fi
   jq -n \
     --arg displayName "${GE_ASSISTANT_ID:-default_assistant}" \
     --arg instruction "${GE_ASSISTANT_SYSTEM_INSTRUCTION:-You are a helpful enterprise assistant.}" \
-    --argjson enableWeb "${GE_ENABLE_WEB_SEARCH_GROUNDING:-true}" \
-    --arg webType "${GE_WEB_GROUNDING_TYPE:-WEB_GROUNDING_TYPE_GOOGLE_SEARCH}" \
-    --arg sessionTtl "${GE_CHAT_SESSION_TTL_SECONDS:-7776000s}" \
-    --argjson retentionDays "${GE_CHAT_HISTORY_RETENTION_DAYS:-90}" \
-    --argjson enableModelArmor "${GE_ENABLE_MODEL_ARMOR:-true}" \
-    --arg maPrompt "${GE_MODEL_ARMOR_PROMPT_TEMPLATE:-}" \
-    --arg maResponse "${GE_MODEL_ARMOR_RESPONSE_TEMPLATE:-}" \
-    --arg maFailureMode "${GE_MODEL_ARMOR_FAILURE_MODE:-FAIL_CLOSED}" \
+    --arg webType "${web_type}" \
     '{
       displayName: $displayName,
       generationConfig: {
@@ -214,16 +278,7 @@ render_assistant_payload() {
           additionalSystemInstruction: $instruction
         }
       },
-      enableWebGrounding: $enableWeb,
-      webGroundingType: $webType,
-      sessionTtl: $sessionTtl,
-      chatHistoryRetentionDays: $retentionDays,
-      modelArmorConfig: {
-        enableModelArmor: $enableModelArmor,
-        promptTemplateName: $maPrompt,
-        responseTemplateName: $maResponse,
-        failureMode: $maFailureMode
-      }
+      webGroundingType: $webType
     }'
 }
 
@@ -313,14 +368,66 @@ configure_engine_features_and_widget() {
   local widget_url="${engine_url}/widgetConfigs/default_search_widget_config"
 
   log_info "Configuring Engine Full Features (Agent Sharing Disabled, Skills + Admin Approval Enabled, Projects Enabled), Knowledge Catalog, Private Knowledge Graph, Model Armor, Chat Retention & Observability on '${GE_APP_ID}'..."
-  local eng_payload
-  eng_payload="$(render_engine_payload)"
-  ge_curl_request "PATCH" "${engine_url}?updateMask=features,sharingConfig,knowledgeGraphConfig,chatHistoryConfig,modelArmorConfig,observabilityConfig" "${eng_payload}" "true" >/dev/null || true
+  local disable_agent_sharing="FEATURE_STATE_ON"
+  if [[ "${GE_ALLOW_AGENT_SHARING:-false}" == "true" ]]; then
+    disable_agent_sharing="FEATURE_STATE_OFF"
+  fi
+  local sharing_without_approval="FEATURE_STATE_OFF"
+  if [[ "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" == "false" ]]; then
+    sharing_without_approval="FEATURE_STATE_ON"
+  fi
+  local eng_patch_payload
+  eng_patch_payload="$(jq -n \
+    --arg featAgentGallery "${GE_FEATURE_AGENT_GALLERY:-FEATURE_STATE_ON}" \
+    --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
+    --arg disableAgentSharing "${disable_agent_sharing}" \
+    --arg sharingWithoutApproval "${sharing_without_approval}" \
+    --arg featPromptGallery "${GE_FEATURE_PROMPT_GALLERY:-FEATURE_STATE_ON}" \
+    --arg featModelSelector "${GE_FEATURE_MODEL_SELECTOR:-FEATURE_STATE_ON}" \
+    --arg featNotebookLm "${GE_FEATURE_NOTEBOOK_LM:-FEATURE_STATE_ON}" \
+    --arg featPeopleSearch "${GE_FEATURE_PEOPLE_SEARCH:-FEATURE_STATE_ON}" \
+    --arg featAudio "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
+    --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
+    --argjson enableObs "${GE_ENABLE_OBSERVABILITY:-true}" \
+    '{
+      features: {
+        "agent-gallery": $featAgentGallery,
+        "no-code-agent-builder": $featNoCodeBuilder,
+        "disable-agent-sharing": $disableAgentSharing,
+        "agent-sharing-without-admin-approval": $sharingWithoutApproval,
+        "enable-end-user-sharing-with-groups": "FEATURE_STATE_OFF",
+        "workflow-agents": "FEATURE_STATE_ON",
+        "prompt-gallery": $featPromptGallery,
+        "model-selector": $featModelSelector,
+        "notebook-lm": $featNotebookLm,
+        "people-search": $featPeopleSearch,
+        "people-search-org-chart": $featPeopleSearch,
+        "bi-directional-audio": $featAudio,
+        "feedback": "FEATURE_STATE_ON",
+        "personalization-memory": "FEATURE_STATE_ON",
+        "cross-product-intelligence": "FEATURE_STATE_ON",
+        "disable-canvas": "FEATURE_STATE_OFF",
+        "session-sharing": "FEATURE_STATE_OFF"
+      },
+      knowledgeGraphConfig: {
+        enablePrivateKnowledgeGraph: $enablePkg
+      },
+      observabilityConfig: {
+        observabilityEnabled: $enableObs
+      }
+    }')"
+  ge_curl_request "PATCH" "${engine_url}?updateMask=features,knowledgeGraphConfig,observabilityConfig" "${eng_patch_payload}" "true" >/dev/null || true
 
   log_info "Configuring Widget Autocomplete, Feedback, User Event Collection, Logo & Admin Connector Display Names on '${GE_APP_ID}'..."
-  local widget_payload
-  widget_payload="$(render_widget_config_payload)"
-  ge_curl_request "PATCH" "${widget_url}?updateMask=enableAutocomplete,enablePrivateKnowledgeGraph,uiBranding,uiSettings,collectionComponents" "${widget_payload}" "true" >/dev/null || true
+  local widget_patch_payload
+  widget_patch_payload="$(jq -n \
+    --argjson enableAutocomplete "${GE_ENABLE_AUTOCOMPLETE:-true}" \
+    --argjson enableFeedback "${GE_ENABLE_FEEDBACK:-true}" \
+    '{
+      enableAutocomplete: $enableAutocomplete,
+      enableQualityFeedback: $enableFeedback
+    }')"
+  ge_curl_request "PATCH" "${widget_url}?updateMask=enableAutocomplete,enableQualityFeedback" "${widget_patch_payload}" "true" >/dev/null || true
   log_ok "Engine Full Feature Matrix, Widget, Branding, Autocomplete, Feedback, User Events, Model Armor & Observability configured."
 }
 
@@ -405,33 +512,37 @@ configure_connector_oauth_iam() {
     return 0
   fi
 
-  local role_payload
-  role_payload="$(jq -n --arg roleId "${role_id}" '{
-    roleId: $roleId,
-    role: {
-      title: "Gemini Enterprise Connector OAuth User",
-      description: "Least-privilege location and dataConnector OAuth permissions without granting cross-app Engine access.",
-      stage: "GA",
-      includedPermissions: [
-        "discoveryengine.authorizations.storeUserAuthorization",
-        "discoveryengine.collections.get",
-        "discoveryengine.dataConnectors.acquireAccessToken",
-        "discoveryengine.dataConnectors.acquireAndStoreRefreshToken",
-        "discoveryengine.dataConnectors.buildActionInvocation",
-        "discoveryengine.dataConnectors.checkRefreshToken",
-        "discoveryengine.dataConnectors.executeAction",
-        "discoveryengine.dataConnectors.queryAvailableActions",
-        "discoveryengine.dataStores.get",
-        "discoveryengine.locations.buildAuthorizationUrl",
-        "discoveryengine.locations.completeExternalIdentities",
-        "discoveryengine.locations.fetchAgentCards",
-        "discoveryengine.locations.listConnectorSources",
-        "discoveryengine.users.get",
-        "discoveryengine.users.update"
-      ]
-    }
-  }')"
-  ge_curl_request "POST" "https://iam.googleapis.com/v1/projects/${GCP_PROJECT_ID}/roles" "${role_payload}" "true" >/dev/null || true
+  local existing_role_rc=0
+  ge_curl_request "GET" "https://iam.googleapis.com/v1/${full_role}" "" "true" >/dev/null || existing_role_rc=$?
+  if [[ "${existing_role_rc}" -eq 44 ]]; then
+    local role_payload
+    role_payload="$(jq -n --arg roleId "${role_id}" '{
+      roleId: $roleId,
+      role: {
+        title: "Gemini Enterprise Connector OAuth User",
+        description: "Least-privilege location and dataConnector OAuth permissions without granting cross-app Engine access.",
+        stage: "GA",
+        includedPermissions: [
+          "discoveryengine.authorizations.storeUserAuthorization",
+          "discoveryengine.collections.get",
+          "discoveryengine.dataConnectors.acquireAccessToken",
+          "discoveryengine.dataConnectors.acquireAndStoreRefreshToken",
+          "discoveryengine.dataConnectors.buildActionInvocation",
+          "discoveryengine.dataConnectors.checkRefreshToken",
+          "discoveryengine.dataConnectors.executeAction",
+          "discoveryengine.dataConnectors.queryAvailableActions",
+          "discoveryengine.dataStores.get",
+          "discoveryengine.locations.buildAuthorizationUrl",
+          "discoveryengine.locations.completeExternalIdentities",
+          "discoveryengine.locations.fetchAgentCards",
+          "discoveryengine.locations.listConnectorSources",
+          "discoveryengine.users.get",
+          "discoveryengine.users.update"
+        ]
+      }
+    }')"
+    ge_curl_request "POST" "https://iam.googleapis.com/v1/projects/${GCP_PROJECT_ID}/roles" "${role_payload}" "true" >/dev/null || true
+  fi
 
   # Bind group_member to geConnectorAuthUser on project
   local crm_base="https://cloudresourcemanager.googleapis.com/v1/projects/${GCP_PROJECT_ID}"
@@ -548,7 +659,8 @@ ensure_app_cloud_identity_group() {
         log_info "Adding member '${member_email}' to group '${group_email}'..."
         local m_payload
         m_payload="$(render_cloud_identity_membership_payload "${member_email}")"
-        ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/${group_name}/memberships" "${m_payload}" >/dev/null
+        ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/${group_name}/memberships" "${m_payload}" "true" >/dev/null || \
+          log_warn "Skipping member '${member_email}' for group '${group_email}' (principal may not exist in Cloud Identity)."
       fi
     done
   fi
@@ -588,7 +700,7 @@ configure_gemini_enterprise_app() {
 
     log_info "Running in curl-only mode: Ensuring Gemini Enterprise Engine '${GE_APP_ID}' exists via REST API..."
     local eng_payload
-    eng_payload="$(render_engine_payload)"
+    eng_payload="$(render_engine_api_payload)"
     ge_upsert_resource \
       "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}" \
       "${base_v1alpha}/${col_parent}/engines?engineId=${GE_APP_ID}" \
@@ -608,7 +720,7 @@ configure_gemini_enterprise_app() {
   ge_upsert_resource \
     "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}/assistants/${assistant_id}" \
     "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}/assistants?assistantId=${assistant_id}" \
-    "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}/assistants/${assistant_id}?updateMask=generationConfig,enableWebGrounding,webGroundingType,sessionTtl,chatHistoryRetentionDays,modelArmorConfig" \
+    "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}/assistants/${assistant_id}?updateMask=generationConfig,webGroundingType" \
     "${assistant_payload}" >/dev/null
   log_ok "Gemini Enterprise Assistant '${assistant_id}' configured."
 

@@ -115,7 +115,7 @@ EOF
 
   local workspace="${TF_WORKSPACE_OVERRIDE:-${GE_APP_ID}}"
   log_info "Initializing Terraform..."
-  terraform -chdir="${tf_dir}" init -input=false >/dev/null
+  terraform -chdir="${tf_dir}" init -reconfigure -input=false >/dev/null
   log_info "Selecting Terraform workspace '${workspace}'..."
   terraform -chdir="${tf_dir}" workspace select -or-create "${workspace}" >/dev/null
   log_info "Validating Terraform configuration..."
