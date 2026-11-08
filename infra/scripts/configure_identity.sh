@@ -29,6 +29,8 @@ load_identity_config() {
   local env_m365_client_id="${M365_CLIENT_ID:-}"
   local env_m365_client_secret="${M365_CLIENT_SECRET:-}"
   local env_m365_secret_id="${M365_SECRET_ID:-}"
+  local env_dns_project_id="${DNS_PROJECT_ID_OVERRIDE:-}"
+  local env_dns_zone_name="${DNS_ZONE_NAME_OVERRIDE:-}"
 
   set -a
   # shellcheck disable=SC1090
@@ -50,8 +52,8 @@ load_identity_config() {
   export M365_CLIENT_SECRET="${env_m365_client_secret:-${M365_CLIENT_SECRET:-}}"
 
   export MANAGE_DNS_VERIFICATION_RECORD="${MANAGE_DNS_VERIFICATION_RECORD:-false}"
-  export DNS_PROJECT_ID="${DNS_PROJECT_ID:-}"
-  export DNS_ZONE_NAME="${DNS_ZONE_NAME:-}"
+  export DNS_PROJECT_ID="${env_dns_project_id:-${DNS_PROJECT_ID:-${GCP_PROJECT_ID}}}"
+  export DNS_ZONE_NAME="${env_dns_zone_name:-${DNS_ZONE_NAME:-}}"
   export ENTRA_DOMAIN_VERIFICATION_MS_ID="${ENTRA_DOMAIN_VERIFICATION_MS_ID:-}"
   export GOOGLE_DOMAIN_VERIFICATION_TXT="${GOOGLE_DOMAIN_VERIFICATION_TXT:-}"
 
@@ -689,31 +691,51 @@ configure_cloud_identity_sso_and_acl() {
       log_ok "Cloud Identity SAML SSO Profile '${profile_name}' active (EntityID=${sp_entity_id}, ACS=${sp_acs_url})."
 
       if [[ -n "${SAML_IDP_CERT_FILE:-}" && -f "${SAML_IDP_CERT_FILE}" ]]; then
-        log_info "Uploading Entra ID X.509 Certificate from '${SAML_IDP_CERT_FILE}' to '${profile_name}'..."
-        local pem_data cert_payload
-        pem_data="$(cat "${SAML_IDP_CERT_FILE}")"
-        cert_payload="$(jq -n --arg pem "${pem_data}" '{pemData: $pem}')"
-        ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/${profile_name}/idpCredentials:add" "${cert_payload}" "true" >/dev/null || true
+        local existing_creds cred_count
+        existing_creds="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/${profile_name}/idpCredentials" "" "false" || echo '{}')"
+        cred_count="$(jq -r '.idpCredentials | length // 0' <<<"${existing_creds}" 2>/dev/null || echo "0")"
+        if [[ "${cred_count}" -lt 2 ]]; then
+          log_info "Uploading Entra ID X.509 Certificate from '${SAML_IDP_CERT_FILE}' to '${profile_name}'..."
+          local pem_data cert_payload
+          pem_data="$(cat "${SAML_IDP_CERT_FILE}")"
+          cert_payload="$(jq -n --arg pem "${pem_data}" '{pemData: $pem}')"
+          ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/${profile_name}/idpCredentials:add" "${cert_payload}" "false" >/dev/null || true
+        else
+          log_info "SAML SSO Profile '${profile_name}' already has ${cred_count} IdP X.509 certificate(s) registered."
+        fi
       fi
 
       if [[ -n "${SAML_TARGET_ORG_UNIT:-}" ]]; then
-        log_info "Assigning SAML SSO Profile '${profile_name}' to Org Unit '${SAML_TARGET_ORG_UNIT}'..."
-        local assign_payload
-        assign_payload="$(jq -n \
-          --arg cust "${CLOUD_IDENTITY_CUSTOMER_ID}" \
-          --arg ou "${SAML_TARGET_ORG_UNIT}" \
-          --arg prof "${profile_name}" \
-          '{customer: $cust, targetOrgUnit: $ou, ssoMode: "SAML_SSO", samlSsoInfo: {inboundSamlSsoProfile: $prof}}')"
-        ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/inboundSsoAssignments" "${assign_payload}" "true" >/dev/null || true
+        local existing_assigns has_ou_assign
+        existing_assigns="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/inboundSsoAssignments?filter=customer%3D%3D%22${CLOUD_IDENTITY_CUSTOMER_ID}%22" "" "false" || echo '{}')"
+        has_ou_assign="$(jq -r --arg ou "${SAML_TARGET_ORG_UNIT}" '.inboundSsoAssignments[]? | select(.targetOrgUnit == $ou) | .name' <<<"${existing_assigns}" 2>/dev/null | head -n 1 || true)"
+        if [[ -z "${has_ou_assign}" ]]; then
+          log_info "Assigning SAML SSO Profile '${profile_name}' to Org Unit '${SAML_TARGET_ORG_UNIT}'..."
+          local assign_payload
+          assign_payload="$(jq -n \
+            --arg cust "${CLOUD_IDENTITY_CUSTOMER_ID}" \
+            --arg ou "${SAML_TARGET_ORG_UNIT}" \
+            --arg prof "${profile_name}" \
+            '{customer: $cust, targetOrgUnit: $ou, ssoMode: "SAML_SSO", samlSsoInfo: {inboundSamlSsoProfile: $prof}}')"
+          ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/inboundSsoAssignments" "${assign_payload}" "false" >/dev/null || true
+        else
+          log_info "Org Unit '${SAML_TARGET_ORG_UNIT}' already has Inbound SAML SSO assignment (${has_ou_assign})."
+        fi
       fi
     fi
   fi
 
   local rc=0 acl_resp=""
-  acl_resp="$(ge_curl_request "GET" "${acl_url}" "" "true")" || rc=$?
+  acl_resp="$(ge_curl_request "GET" "${acl_url}" "" "false")" || rc=$?
   if [[ "${rc}" -eq 0 ]]; then
     local idp_type
     idp_type="$(printf '%s' "${acl_resp}" | jq -r '.idpConfig.idpType // "UNKNOWN"')"
+    if [[ "${idp_type}" != "GSUITE" ]]; then
+      log_info "Setting Discovery Engine aclConfig idpType=GSUITE on project '${GCP_PROJECT_ID}'..."
+      local patch_acl_resp=""
+      patch_acl_resp="$(ge_curl_request "PATCH" "${acl_url}" '{"idpConfig":{"idpType":"GSUITE"}}' "false" || echo "{}")"
+      idp_type="$(printf '%s' "${patch_acl_resp}" | jq -r '.idpConfig.idpType // "GSUITE"')"
+    fi
     log_ok "Discovery Engine aclConfig verified (idpType=${idp_type})."
   else
     log_warn "Could not inspect Discovery Engine aclConfig (rc=${rc})."

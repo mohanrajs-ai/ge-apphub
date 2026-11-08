@@ -9,11 +9,17 @@ resource "google_project_service" "identity_apis" {
     "cloudidentity.googleapis.com",
     "admin.googleapis.com",
     "siteverification.googleapis.com",
-    "dns.googleapis.com",
   ])
 
   project            = var.project_id
   service            = each.value
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "dns_project_api" {
+  count              = var.manage_dns_verification_record ? 1 : 0
+  project            = trimspace(var.dns_project_id) != "" ? trimspace(var.dns_project_id) : var.project_id
+  service            = "dns.googleapis.com"
   disable_on_destroy = false
 }
 
@@ -67,12 +73,13 @@ locals {
 # Optional: Manage shared domain TXT verification records in Cloud DNS (var.dns_project_id / var.dns_zone_name)
 resource "google_dns_record_set" "domain_verification_txt" {
   count        = var.manage_dns_verification_record ? 1 : 0
-  project      = var.dns_project_id
+  project      = trimspace(var.dns_project_id) != "" ? trimspace(var.dns_project_id) : var.project_id
   managed_zone = var.dns_zone_name
   name         = "${trimsuffix(var.shared_identity_domain, ".")}."
   type         = "TXT"
   ttl          = 60
   rrdatas      = local.dns_txt_records
+  depends_on   = [google_project_service.dns_project_api]
 }
 
 # Provision synchronized Microsoft Entra ID Security/M365 Groups in Google Cloud Identity

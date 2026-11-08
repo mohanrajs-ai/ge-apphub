@@ -111,6 +111,7 @@ gcloud auth application-default login
   --customer-name "cymbal" \
   --customer-domain "cymbal.com" \
   --gcp-project-id "cymbal-ge-prod" \
+  --dns-project-id "cymbal-dns-project" \
   --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
   --dns-zone-name "cymbal-com-zone" \
   --dry-run
@@ -120,6 +121,7 @@ gcloud auth application-default login
   --customer-name "cymbal" \
   --customer-domain "cymbal.com" \
   --gcp-project-id "cymbal-ge-prod" \
+  --dns-project-id "cymbal-dns-project" \
   --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
   --dns-zone-name "cymbal-com-zone"
 ```

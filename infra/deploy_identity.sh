@@ -30,13 +30,15 @@ Usage: ./deploy_identity.sh [OPTIONS]
 Master executable orchestrator for Microsoft Entra ID to Google Cloud Identity Sync & SSO.
 
 Options:
-  --config <path>      Path to Identity configuration file (default: ./configs/identity.env)
-  --dry-run            Validate config, preview Graph sync, and run 'terraform plan' without mutating state
-  --sync-only          Execute only Pre-Flight and Microsoft Graph discovery / UPN migration phases
-  --terraform-only     Execute only Pre-Flight and Terraform (terraform-identity/) provisioning phases
-  --verify-only        Execute only Pre-Flight and Post-Deployment Verification phases
-  --destroy            Destroy Terraform-managed synced Cloud Identity group resources
-  --help, -h           Show this help message and exit
+  --config <path>          Path to Identity configuration file (default: ./configs/identity.env)
+  --dns-project-id <id>    Override Cloud DNS GCP project ID (when DNS lives in a separate project from the App project)
+  --dns-zone-name <zone>   Override Cloud DNS managed zone name for shared_identity_domain
+  --dry-run                Validate config, preview Graph sync, and run 'terraform plan' without mutating state
+  --sync-only              Execute only Pre-Flight and Microsoft Graph discovery / UPN migration phases
+  --terraform-only         Execute only Pre-Flight and Terraform (terraform-identity/) provisioning phases
+  --verify-only            Execute only Pre-Flight and Post-Deployment Verification phases
+  --destroy                Destroy Terraform-managed synced Cloud Identity group resources
+  --help, -h               Show this help message and exit
 EOF
 }
 
@@ -121,6 +123,17 @@ import_existing_cloud_identity_resources() {
       fi
     done
   fi
+  # Also import existing Cloud DNS domain verification TXT record if managed in DNS_PROJECT_ID
+  if [[ "${MANAGE_DNS_VERIFICATION_RECORD:-false}" == "true" && -n "${DNS_PROJECT_ID:-}" && -n "${DNS_ZONE_NAME:-}" && -n "${SHARED_IDENTITY_DOMAIN:-}" ]]; then
+    local tf_dns_addr='google_dns_record_set.domain_verification_txt[0]'
+    if ! grep -qF "${tf_dns_addr}" <<<"${state_list}"; then
+      local fqdn="${SHARED_IDENTITY_DOMAIN%.}."
+      if gcloud dns record-sets describe "${fqdn}" --type=TXT --zone="${DNS_ZONE_NAME}" --project="${DNS_PROJECT_ID}" --quiet >/dev/null 2>&1; then
+        log_info "Importing existing Cloud DNS TXT record '${fqdn}' from project '${DNS_PROJECT_ID}' (zone '${DNS_ZONE_NAME}') -> ${tf_dns_addr}"
+        terraform -chdir="${tf_dir}" import -input=false "${tf_dns_addr}" "projects/${DNS_PROJECT_ID}/managedZones/${DNS_ZONE_NAME}/rrsets/${fqdn}/TXT" >/dev/null 2>&1 || true
+      fi
+    fi
+  fi
 }
 
 run_identity_terraform_phase() {
@@ -131,6 +144,10 @@ run_identity_terraform_phase() {
 
   if [[ "${DRY_RUN:-false}" != "true" ]]; then
     export GOOGLE_OAUTH_ACCESS_TOKEN="$(gcloud auth application-default print-access-token --quiet 2>/dev/null || gcloud auth print-access-token --quiet)"
+    gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com --project="${GCP_PROJECT_ID}" --quiet >/dev/null 2>&1 || true
+    if [[ "${MANAGE_DNS_VERIFICATION_RECORD:-false}" == "true" && -n "${DNS_PROJECT_ID:-}" && "${DNS_PROJECT_ID}" != "${GCP_PROJECT_ID}" ]]; then
+      gcloud services enable cloudresourcemanager.googleapis.com serviceusage.googleapis.com dns.googleapis.com --project="${DNS_PROJECT_ID}" --quiet >/dev/null 2>&1 || true
+    fi
   fi
 
   if [[ -n "${TF_STATE_BUCKET:-}" ]]; then
@@ -188,12 +205,22 @@ deploy_identity_main() {
   local config_file="${DEPLOY_IDENTITY_ROOT}/configs/identity.env"
   export DRY_RUN="false"
   export SKIP_TERRAFORM="false"
+  export DNS_PROJECT_ID_OVERRIDE=""
+  export DNS_ZONE_NAME_OVERRIDE=""
   local mode="full"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --config)
         config_file="$2"
+        shift 2
+        ;;
+      --dns-project-id)
+        export DNS_PROJECT_ID_OVERRIDE="$2"
+        shift 2
+        ;;
+      --dns-zone-name)
+        export DNS_ZONE_NAME_OVERRIDE="$2"
         shift 2
         ;;
       --dry-run)

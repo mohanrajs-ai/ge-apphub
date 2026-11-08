@@ -17,6 +17,7 @@
 #     --customer-domain "cymbal.com" \
 #     --gcp-project-id "cymbal-ge-prod" \
 #     --entra-tenant-id "11111111-2222-3333-4444-555555555555" \
+#     [--dns-project-id "cymbal-dns-project"] \
 #     [--dns-zone-name "cymbal-com-zone"] \
 #     [--entra-mode terraform|az-graph] \
 #     [--dry-run]
@@ -35,6 +36,7 @@ CUSTOMER_DOMAIN="cymbal.com"
 GCP_PROJECT_ID="cymbal-ge-prod"
 GCP_REGION="us-central1"
 ENTRA_TENANT_ID=""
+DNS_PROJECT_ID=""
 DNS_ZONE_NAME=""
 ENTRA_MODE="terraform"
 DRY_RUN="false"
@@ -61,6 +63,10 @@ while [[ $# -gt 0 ]]; do
       ENTRA_TENANT_ID="$2"
       shift 2
       ;;
+    --dns-project-id)
+      DNS_PROJECT_ID="$2"
+      shift 2
+      ;;
     --dns-zone-name)
       DNS_ZONE_NAME="$2"
       shift 2
@@ -85,6 +91,10 @@ if [[ -z "${ENTRA_TENANT_ID}" ]]; then
   exit 1
 fi
 
+if [[ -z "${DNS_PROJECT_ID}" ]]; then
+  DNS_PROJECT_ID="${GCP_PROJECT_ID}"
+fi
+
 TF_STATE_BUCKET="${CUSTOMER_NAME}-ge-tfstate"
 M365_SECRET_ID="${CUSTOMER_NAME}-m365-connector-credentials"
 DRY_RUN_FLAG=()
@@ -94,6 +104,9 @@ fi
 
 echo "=================================================================="
 echo " Master End-to-End Customer Onboarding: ${CUSTOMER_NAME} (${CUSTOMER_DOMAIN})"
+echo "------------------------------------------------------------------"
+echo " App GCP Project : ${GCP_PROJECT_ID}"
+echo " DNS GCP Project : ${DNS_PROJECT_ID}"
 echo "=================================================================="
 
 # ------------------------------------------------------------------------------
@@ -102,15 +115,19 @@ echo "=================================================================="
 echo ""
 echo ">>> [Phase 0C] Preparing GCP Project (${GCP_PROJECT_ID}) & State Bucket (gs://${TF_STATE_BUCKET})..."
 if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] Would enable Discovery Engine, Cloud Identity, Admin SDK, Secret Manager, Vertex AI & Agent Registry APIs"
+  echo "[DRY-RUN] Would enable Cloud Resource Manager, Service Usage, Discovery Engine, Cloud Identity, Admin SDK, Secret Manager, Vertex AI & Agent Registry APIs on '${GCP_PROJECT_ID}'"
+  if [[ "${DNS_PROJECT_ID}" != "${GCP_PROJECT_ID}" || -n "${DNS_ZONE_NAME}" ]]; then
+    echo "[DRY-RUN] Would enable Cloud DNS API (dns.googleapis.com) on DNS project '${DNS_PROJECT_ID}'"
+  fi
   echo "[DRY-RUN] Would create versioned GCS bucket gs://${TF_STATE_BUCKET}"
 else
   gcloud services enable \
+    cloudresourcemanager.googleapis.com \
+    serviceusage.googleapis.com \
     discoveryengine.googleapis.com \
     cloudidentity.googleapis.com \
     admin.googleapis.com \
     siteverification.googleapis.com \
-    dns.googleapis.com \
     secretmanager.googleapis.com \
     aiplatform.googleapis.com \
     agentregistry.googleapis.com \
@@ -120,6 +137,15 @@ else
     storage.googleapis.com \
     bigquery.googleapis.com \
     --project="${GCP_PROJECT_ID}"
+
+  if [[ "${DNS_PROJECT_ID}" != "${GCP_PROJECT_ID}" || -n "${DNS_ZONE_NAME}" ]]; then
+    echo ">>> [Phase 0C] Enabling Cloud DNS & Resource Manager APIs on DNS Project (${DNS_PROJECT_ID})..."
+    gcloud services enable \
+      cloudresourcemanager.googleapis.com \
+      serviceusage.googleapis.com \
+      dns.googleapis.com \
+      --project="${DNS_PROJECT_ID}"
+  fi
 
   gcloud storage buckets describe "gs://${TF_STATE_BUCKET}" --project="${GCP_PROJECT_ID}" >/dev/null 2>&1 || \
     gcloud storage buckets create "gs://${TF_STATE_BUCKET}" \
@@ -139,6 +165,7 @@ echo ">>> [Phase 0B] Running Google Admin & Cloud Identity Bootstrap..."
   --customer-domain "${CUSTOMER_DOMAIN}" \
   --gcp-project-id "${GCP_PROJECT_ID}" \
   --entra-tenant-id "${ENTRA_TENANT_ID}" \
+  --dns-project-id "${DNS_PROJECT_ID}" \
   --dns-zone-name "${DNS_ZONE_NAME}" \
   --tf-state-bucket "${TF_STATE_BUCKET}" \
   ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
@@ -163,10 +190,11 @@ echo ">>> [Phase 0A] Running Microsoft Entra ID OAuth & SAML Gallery Bootstrap..
 echo ""
 echo ">>> [Phase 1] Running Stack 01: Entra -> Cloud Identity Group Sync & SAML Handshake..."
 if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] Would run: TF_WORKSPACE_OVERRIDE=id-${CUSTOMER_NAME}-com ./deploy_identity.sh --config configs/${CUSTOMER_NAME}-identity.env"
+  echo "[DRY-RUN] Would run: TF_WORKSPACE_OVERRIDE=id-${CUSTOMER_NAME}-com ./deploy_identity.sh --config configs/${CUSTOMER_NAME}-identity.env --dns-project-id ${DNS_PROJECT_ID}"
 else
   TF_WORKSPACE_OVERRIDE="id-${CUSTOMER_NAME}-com" "${SCRIPT_DIR}/deploy_identity.sh" \
-    --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env"
+    --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \
+    --dns-project-id "${DNS_PROJECT_ID}"
 fi
 
 # ------------------------------------------------------------------------------

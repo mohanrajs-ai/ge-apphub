@@ -142,13 +142,17 @@ echo "=================================================================="
 echo " Google Admin & Cloud Identity Phase 0B Automation"
 echo "------------------------------------------------------------------"
 echo " Customer         : ${CUSTOMER_NAME} (${CUSTOMER_DOMAIN})"
-echo " GCP Project ID   : ${GCP_PROJECT_ID}"
-echo " Cloud DNS Zone   : ${DNS_ZONE_NAME:-<manual/external DNS>}"
+echo " App GCP Project  : ${GCP_PROJECT_ID}"
+echo " DNS GCP Project  : ${DNS_PROJECT_ID}"
+echo " Cloud DNS Zone   : ${DNS_ZONE_NAME:-<auto-discover or external DNS>}"
 echo " Dry-Run Mode     : ${DRY_RUN}"
 echo "=================================================================="
 
 if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] [Step 0B.1a] Would enable admin.googleapis.com, cloudidentity.googleapis.com, siteverification.googleapis.com, dns.googleapis.com on '${GCP_PROJECT_ID}'"
+  echo "[DRY-RUN] [Step 0B.1a] Would enable cloudresourcemanager.googleapis.com, serviceusage.googleapis.com, admin.googleapis.com, cloudidentity.googleapis.com, siteverification.googleapis.com on '${GCP_PROJECT_ID}'"
+  if [[ "${DNS_PROJECT_ID}" != "${GCP_PROJECT_ID}" || -n "${DNS_ZONE_NAME}" ]]; then
+    echo "[DRY-RUN] [Step 0B.1a] Would enable dns.googleapis.com on DNS project '${DNS_PROJECT_ID}'"
+  fi
   echo "[DRY-RUN] [Step 0B.1a] Would auto-discover GCP_ORG_ID, CLOUD_IDENTITY_CUSTOMER_ID (customers/C0xxxxxxx), and Root Org Unit ID (orgUnits/...) for '${CUSTOMER_DOMAIN}'"
   echo "[DRY-RUN] [Step 0B.1b] Would check/register '${CUSTOMER_DOMAIN}' via Admin SDK Domains API (/admin/directory/v1/customer/my_customer/domains)"
   echo "[DRY-RUN] [Step 0B.1b] Would request DNS_TXT token via Google Site Verification API (https://www.googleapis.com/siteVerification/v1/token)"
@@ -165,14 +169,31 @@ fi
 # ------------------------------------------------------------------------------
 # 1. Enable Required Google Admin, Cloud Identity, Site Verification & DNS APIs
 # ------------------------------------------------------------------------------
-echo "[1/6] [Step 0B.2] Enabling Google Admin SDK, Cloud Identity, Site Verification & Cloud DNS APIs..."
+echo "[1/6] [Step 0B.2] Enabling Google Admin SDK, Cloud Identity, Site Verification & Cloud Resource Manager APIs on '${GCP_PROJECT_ID}'..."
 gcloud services enable \
+  cloudresourcemanager.googleapis.com \
+  serviceusage.googleapis.com \
   admin.googleapis.com \
   cloudidentity.googleapis.com \
   siteverification.googleapis.com \
-  dns.googleapis.com \
   secretmanager.googleapis.com \
   --project="${GCP_PROJECT_ID}"
+
+if [[ "${DNS_PROJECT_ID}" != "${GCP_PROJECT_ID}" || -n "${DNS_ZONE_NAME}" ]]; then
+  echo "      Enabling Cloud DNS & Resource Manager APIs on DNS project '${DNS_PROJECT_ID}'..."
+  gcloud services enable \
+    cloudresourcemanager.googleapis.com \
+    serviceusage.googleapis.com \
+    dns.googleapis.com \
+    --project="${DNS_PROJECT_ID}"
+fi
+
+if [[ -z "${DNS_ZONE_NAME}" ]]; then
+  DNS_ZONE_NAME="$(gcloud dns managed-zones list --project="${DNS_PROJECT_ID}" --filter="dnsName=${CUSTOMER_DOMAIN}." --format="value(name)" 2>/dev/null | head -n 1 || true)"
+  if [[ -n "${DNS_ZONE_NAME}" ]]; then
+    echo "      Auto-discovered Cloud DNS zone '${DNS_ZONE_NAME}' for '${CUSTOMER_DOMAIN}.' in DNS project '${DNS_PROJECT_ID}'."
+  fi
+fi
 
 GCP_TOKEN="$(gcloud auth print-access-token)"
 
@@ -417,9 +438,32 @@ fi
 # ------------------------------------------------------------------------------
 # 6. Auto-Generate configs/<customer>-identity.env for Phase 1
 # ------------------------------------------------------------------------------
+ENTRA_MS_TXT_ID=""
 if [[ -n "${DNS_ZONE_NAME}" ]]; then
   if ! gcloud dns managed-zones describe "${DNS_ZONE_NAME}" --project="${DNS_PROJECT_ID}" --quiet >/dev/null 2>&1; then
     DNS_ZONE_NAME=""
+  else
+    EXISTING_TXT_JSON="$(gcloud dns record-sets describe "${CUSTOMER_DOMAIN}." --type=TXT --zone="${DNS_ZONE_NAME}" --project="${DNS_PROJECT_ID}" --format=json 2>/dev/null || echo '{}')"
+    ENTRA_MS_TXT_ID="$(echo "${EXISTING_TXT_JSON}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for r in d.get('rrdatas', []):
+    clean = r.strip('\"')
+    if clean.startswith('MS='):
+        print(clean)
+        break
+" || true)"
+    if [[ -z "${GOOGLE_VERIFICATION_TOKEN}" ]]; then
+      GOOGLE_VERIFICATION_TOKEN="$(echo "${EXISTING_TXT_JSON}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for r in d.get('rrdatas', []):
+    clean = r.strip('\"')
+    if clean.startswith('google-site-verification='):
+        print(clean)
+        break
+" || true)"
+    fi
   fi
 fi
 
@@ -445,6 +489,7 @@ ENTRA_TO_APP_GROUP_MAPPINGS="ge-service-desk-users@${CUSTOMER_DOMAIN}:${CUSTOMER
 MANAGE_DNS_VERIFICATION_RECORD="$([ -n "${DNS_ZONE_NAME}" ] && echo "true" || echo "false")"
 DNS_PROJECT_ID="${DNS_PROJECT_ID}"
 DNS_ZONE_NAME="${DNS_ZONE_NAME}"
+ENTRA_DOMAIN_VERIFICATION_MS_ID="${ENTRA_MS_TXT_ID}"
 GOOGLE_DOMAIN_VERIFICATION_TXT="${GOOGLE_VERIFICATION_TOKEN}"
 
 ENABLE_CLOUD_IDENTITY_SAML_SSO="true"
