@@ -134,6 +134,7 @@ EOF
   fi
 
   log_info "Initializing Terraform in ${tf_dir}..."
+  rm -f "${tf_dir}/.terraform/environment"
   terraform -chdir="${tf_dir}" init -reconfigure -input=false >/dev/null
   log_info "Selecting Terraform workspace '${workspace}'..."
   terraform -chdir="${tf_dir}" workspace select -or-create "${workspace}" >/dev/null
