@@ -95,6 +95,22 @@ load_identity_config() {
 }
 
 validate_identity_config() {
+  if [[ -z "${CLOUD_IDENTITY_CUSTOMER_ID:-}" && "${DRY_RUN:-false}" != "true" ]]; then
+    local org_line
+    org_line="$(gcloud organizations list --format="value(name,owner.directoryCustomerId)" 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${org_line}" ]]; then
+      local disc_org disc_cust
+      disc_org="$(echo "${org_line}" | awk '{print $1}' | sed 's|organizations/||')"
+      disc_cust="$(echo "${org_line}" | awk '{print $2}')"
+      export GCP_ORG_ID="${GCP_ORG_ID:-${disc_org}}"
+      export TF_VAR_organization_id="${GCP_ORG_ID}"
+      if [[ -n "${disc_cust}" ]]; then
+        export CLOUD_IDENTITY_CUSTOMER_ID="customers/${disc_cust#customers/}"
+        export TF_VAR_cloud_identity_customer_id="${CLOUD_IDENTITY_CUSTOMER_ID}"
+      fi
+    fi
+  fi
+
   local missing=()
   for var_name in GCP_PROJECT_ID CLOUD_IDENTITY_CUSTOMER_ID SHARED_IDENTITY_DOMAIN M365_SECRET_ID; do
     if [[ -z "${!var_name:-}" ]]; then
@@ -105,6 +121,10 @@ validate_identity_config() {
   if [[ "${#missing[@]}" -gt 0 ]]; then
     log_error "Missing required Identity configuration variables: ${missing[*]}"
     return 1
+  fi
+
+  if [[ -z "${M365_TENANT_ID:-}" && -z "${M365_CLIENT_ID:-}" && -z "${M365_CLIENT_SECRET:-}" && "${DRY_RUN:-false}" != "true" ]]; then
+    ensure_and_load_identity_secret_credentials || true
   fi
 
   local missing_secrets=()

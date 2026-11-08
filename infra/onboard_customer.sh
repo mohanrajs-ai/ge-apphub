@@ -177,6 +177,13 @@ echo ">>> [Phase 2] Running Stack 03: Shared M365 Connectors (${CUSTOMER_NAME}-m
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "[DRY-RUN] Would generate configs/${CUSTOMER_NAME}-m365.env and run: TF_WORKSPACE_OVERRIDE=m365-global-${CUSTOMER_NAME}-m365 ./deploy_m365.sh"
 else
+  SP_TENANT_PREFIX="${CUSTOMER_NAME}"
+  if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then
+    INIT_DOM="$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/domains" --query "value[?isInitial].id | [0]" -o tsv 2>/dev/null || true)"
+    if [[ -n "${INIT_DOM}" && "${INIT_DOM}" == *.onmicrosoft.com ]]; then
+      SP_TENANT_PREFIX="${INIT_DOM%.onmicrosoft.com}"
+    fi
+  fi
   cat > "${CONFIGS_DIR}/${CUSTOMER_NAME}-m365.env" <<EOF
 GCP_PROJECT_ID="${GCP_PROJECT_ID}"
 GCP_REGION="${GCP_REGION}"
@@ -189,11 +196,11 @@ M365_CONNECTOR_MODE="FEDERATED"
 ENABLE_M365_ACTIONS="true"
 ENABLE_SHAREPOINT_CONNECTOR="true"
 M365_SHAREPOINT_COLLECTION_ID="${CUSTOMER_NAME}-m365-sp"
-M365_SHAREPOINT_INSTANCE_URI="https://${CUSTOMER_NAME}.sharepoint.com"
+M365_SHAREPOINT_INSTANCE_URI="https://${SP_TENANT_PREFIX}.sharepoint.com"
 M365_SHAREPOINT_ENTITIES="file,page"
 ENABLE_ONEDRIVE_CONNECTOR="true"
 M365_ONEDRIVE_COLLECTION_ID="${CUSTOMER_NAME}-m365-od"
-M365_ONEDRIVE_INSTANCE_URI="https://${CUSTOMER_NAME}-my.sharepoint.com"
+M365_ONEDRIVE_INSTANCE_URI="https://${SP_TENANT_PREFIX}-my.sharepoint.com"
 M365_ONEDRIVE_ENTITIES="file"
 ENABLE_OUTLOOK_CONNECTOR="true"
 M365_OUTLOOK_COLLECTION_ID="${CUSTOMER_NAME}-m365-ol"

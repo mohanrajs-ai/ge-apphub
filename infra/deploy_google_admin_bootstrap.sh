@@ -121,7 +121,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${ENTRA_SOURCE_DOMAIN}" ]]; then
-  ENTRA_SOURCE_DOMAIN="${CUSTOMER_NAME}.onmicrosoft.com"
+  if command -v az >/dev/null 2>&1 && az account show >/dev/null 2>&1; then
+    ENTRA_SOURCE_DOMAIN="$(az rest --method GET --uri "https://graph.microsoft.com/v1.0/domains" --query "value[?isInitial].id | [0]" -o tsv 2>/dev/null || true)"
+  fi
+  ENTRA_SOURCE_DOMAIN="${ENTRA_SOURCE_DOMAIN:-${CUSTOMER_NAME}.onmicrosoft.com}"
 fi
 if [[ -z "${DNS_PROJECT_ID}" ]]; then
   DNS_PROJECT_ID="${GCP_PROJECT_ID}"
@@ -179,6 +182,9 @@ GCP_TOKEN="$(gcloud auth print-access-token)"
 echo "[2/6] [Step 0B.1a] Auto-discovering Cloud Identity Customer ID, GCP Org ID & Root Org Unit for ${CUSTOMER_DOMAIN}..."
 if [[ -z "${GCP_ORG_ID}" || -z "${CLOUD_IDENTITY_CUSTOMER_ID}" ]]; then
   ORG_LINE="$(gcloud organizations list --filter="displayName:${CUSTOMER_DOMAIN}" --format="value(name,owner.directoryCustomerId)" 2>/dev/null | head -n 1 || true)"
+  if [[ -z "${ORG_LINE}" ]]; then
+    ORG_LINE="$(gcloud organizations list --format="value(name,owner.directoryCustomerId)" 2>/dev/null | head -n 1 || true)"
+  fi
   if [[ -n "${ORG_LINE}" ]]; then
     DISCOVERED_ORG="$(echo "${ORG_LINE}" | awk '{print $1}' | sed 's|organizations/||')"
     DISCOVERED_CUST="$(echo "${ORG_LINE}" | awk '{print $2}')"
@@ -202,6 +208,23 @@ if [[ -z "${CLOUD_IDENTITY_CUSTOMER_ID}" ]]; then
 fi
 
 CUSTOMER_RAW_ID="${CLOUD_IDENTITY_CUSTOMER_ID#customers/}"
+
+if [[ -z "${SAML_TARGET_ORG_UNIT}" && -n "${CLOUD_IDENTITY_CUSTOMER_ID}" ]]; then
+  SSO_ASSIGNMENTS_JSON="$(curl -sS -H "Authorization: Bearer ${GCP_TOKEN}" \
+    -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+    "https://cloudidentity.googleapis.com/v1/inboundSsoAssignments?filter=customer%3D%3D%22${CLOUD_IDENTITY_CUSTOMER_ID}%22" || echo '{}')"
+  SAML_TARGET_ORG_UNIT="$(echo "${SSO_ASSIGNMENTS_JSON}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+for a in d.get('inboundSsoAssignments', []):
+    if a.get('ssoMode') == 'SAML_SSO' and a.get('targetOrgUnit'):
+        print(a['targetOrgUnit'])
+        break
+else:
+    if d.get('inboundSsoAssignments'):
+        print(d['inboundSsoAssignments'][0].get('targetOrgUnit', ''))
+" || true)"
+fi
 
 if [[ -z "${SAML_TARGET_ORG_UNIT}" ]]; then
   ROOT_OU_JSON="$(curl -sS -H "Authorization: Bearer ${GCP_TOKEN}" \
@@ -262,6 +285,13 @@ else
 
   GOOGLE_VERIFICATION_TOKEN="$(echo "${TOKEN_RESP}" | python3 -c "import sys, json; print(json.load(sys.stdin).get('token', ''))" || true)"
   echo "      Obtained TXT Verification Token: ${GOOGLE_VERIFICATION_TOKEN:-<none>}"
+
+  if [[ -n "${DNS_ZONE_NAME}" ]]; then
+    if ! gcloud dns managed-zones describe "${DNS_ZONE_NAME}" --project="${DNS_PROJECT_ID}" --quiet >/dev/null 2>&1; then
+      echo "      [INFO] Cloud DNS zone '${DNS_ZONE_NAME}' not found in project '${DNS_PROJECT_ID}'; setting MANAGE_DNS_VERIFICATION_RECORD=false."
+      DNS_ZONE_NAME=""
+    fi
+  fi
 
   if [[ -n "${DNS_ZONE_NAME}" && -n "${GOOGLE_VERIFICATION_TOKEN}" ]]; then
     echo "      Provisioning TXT record in Cloud DNS zone '${DNS_ZONE_NAME}' (${DNS_PROJECT_ID})..."
@@ -387,6 +417,12 @@ fi
 # ------------------------------------------------------------------------------
 # 6. Auto-Generate configs/<customer>-identity.env for Phase 1
 # ------------------------------------------------------------------------------
+if [[ -n "${DNS_ZONE_NAME}" ]]; then
+  if ! gcloud dns managed-zones describe "${DNS_ZONE_NAME}" --project="${DNS_PROJECT_ID}" --quiet >/dev/null 2>&1; then
+    DNS_ZONE_NAME=""
+  fi
+fi
+
 echo "[6/6] Writing auto-discovered Phase 1 configuration to ${IDENTITY_ENV_OUT}..."
 cat > "${IDENTITY_ENV_OUT}" <<EOF
 GCP_PROJECT_ID="${GCP_PROJECT_ID}"
