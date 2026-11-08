@@ -154,11 +154,30 @@ cd /Users/mohanrajs/aops/geapphub/infra
 
 ---
 
-### Option C: Manual Microsoft Entra Admin Center UI Reference (`entra.microsoft.com`)
+### Step 0A.1: Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`) — Automated & Manual Options
 
-If Cymbal's identity team requires manual UI execution instead of Option A/B, follow these exact steps in **[entra.microsoft.com](https://entra.microsoft.com)**:
+#### Option 0A.1-A (Recommended): Automated via Terraform (`--mode terraform`) or Azure CLI (`--mode az-graph`)
+Running `./deploy_entra_bootstrap.sh` automatically provisions both **Step 0A.1** (OAuth App + 47 Permissions + Admin Consent + Secret Manager sync) and **Step 0A.2** (SAML Gallery App + 5 Department Security Groups + Cloud Identity Certificate Handshake):
 
-#### Step 0A.1: Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`)
+```bash
+cd /Users/mohanrajs/aops/geapphub/infra
+
+# 1. Authenticate to Cymbal's Microsoft Entra ID Tenant & Google Cloud
+az login --tenant "cymbal.com"
+gcloud auth application-default login
+
+# 2. Run Terraform Mode (or pass --mode az-graph for Azure CLI / Graph REST mode)
+./deploy_entra_bootstrap.sh \
+  --tenant-id "<cymbal-entra-tenant-uuid>" \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --cloud-identity-customer-id "customers/<CymbalCustomerID>" \
+  --mode terraform
+```
+
+#### Option 0A.1-B: Manual `entra.microsoft.com` Portal UI Reference (Step 0A.1)
+If Cymbal's identity team requires manual UI execution for Step 0A.1 instead of running `deploy_entra_bootstrap.sh`:
 1. Sign in to **[entra.microsoft.com](https://entra.microsoft.com)** as a Global Administrator or Cloud Application Administrator for `cymbal.com`.
 2. Navigate to **Identity -> Applications -> App registrations -> + New registration**:
    - **Name:** `cymbal-ge-m365-connector`
@@ -174,7 +193,7 @@ If Cymbal's identity team requires manual UI execution instead of Option A/B, fo
    - **Description:** `Gemini Enterprise M365 Connector & Graph Sync`
    - **Expires:** `24 months` (or per Cymbal security policy)
    - Click **Add** and immediately copy the secret **Value** (not the Secret ID) $\rightarrow$ `M365_CLIENT_SECRET`.
-4. Navigate to **API permissions -> + Add a permission** and add the following **Application** and **Delegated** permissions:
+4. Navigate to **API permissions -> + Add a permission** and add the following **47 Application and Delegated permissions** (automatically attached by Stack 00):
 
    ##### 1. Microsoft Graph — Application Permissions (`12 Roles` — *for Entra Group Sync & Connector Ingestion across all 4 M365 Apps*)
    | M365 Application | Permission (`Role`) | Purpose |
@@ -203,10 +222,112 @@ If Cymbal's identity team requires manual UI execution instead of Option A/B, fo
 
 ---
 
-#### Step 0A.2: Create the SAML 2.0 Enterprise Gallery App (`Google Cloud / G Suite Connector by Microsoft`)
-> [!WARNING]
-> Do **not** use the OAuth App Registration above for SAML SSO (the SAML tile is disabled on standard App Registrations). Always instantiate the official gallery application under **Enterprise applications** (or let Option A/B instantiate Template ID `8b1025e4-1dd2-430b-a150-2ef79cd700f5` automatically).
+### Step 0A.2: Create & Configure the SAML 2.0 Enterprise Gallery App (`Google Cloud / G Suite Connector by Microsoft`) — Automated & Manual Options
 
+> [!WARNING]
+> Do **not** use the OAuth App Registration from Step 0A.1 for SAML SSO (the SAML tile is disabled on standard App Registrations). Always instantiate the official gallery application **`Google Cloud / G Suite Connector by Microsoft`** (`Template ID: 8b1025e4-1dd2-430b-a150-2ef79cd700f5`) under **Enterprise applications**.
+
+#### Option 0A.2-A (Recommended): Automated via Terraform (`infra/modules/entra-bootstrap/main.tf`)
+When you run `./deploy_entra_bootstrap.sh --mode terraform` (or apply [`infra/stacks/00-entra-bootstrap/main.tf`](../infra/stacks/00-entra-bootstrap/main.tf)), Terraform and the orchestrator script automatically execute every part of **Step 0A.2**:
+1. **Pre-Resolves Cloud Identity SAML Service Provider URLs:** Calls `https://cloudidentity.googleapis.com/v1/inboundSamlSsoProfiles` to create/fetch Cymbal's `SAML_SP_ENTITY_ID` (`https://accounts.google.com/samlrp/<profile_id>`) and `SAML_SP_ACS_URL` (`https://accounts.google.com/samlrp/<profile_id>/acs`).
+2. **Instantiates the Gallery SAML App (`azuread_application_from_template.google_cloud_saml`):** Instantiates Template `8b1025e4-1dd2-430b-a150-2ef79cd700f5` as **`CYMBAL Google Cloud & Gemini Enterprise SSO`**.
+3. **Configures SAML Entity ID & ACS Reply URLs (`azuread_application_identifier_uri` & `azuread_application_redirect_uris`):** Configures `https://accounts.google.com/samlrp/<profile_id>` and `https://accounts.google.com/samlrp/<profile_id>/acs` (plus `https://www.google.com/a/cymbal.com/acs`).
+4. **Creates & Assigns All 5 Cymbal Department Security Groups (`azuread_group.department_groups` & `azuread_app_role_assignment.saml_group_assignments`):** Creates `ge-service-desk-users`, `ge-finance-users`, `ge-hr-users`, `ge-skill-developers`, and `all-ge-apps-users` in Entra ID and assigns all 5 groups to the SAML Enterprise App (`appRoleId = 00000000-0000-0000-0000-000000000000`).
+5. **Generates & Uploads the SAML X.509 Signing Certificate (`azuread_service_principal_token_signing_certificate.saml_cert`):** Generates the SAML signing certificate, exports `infra/configs/cymbal-entra-saml.cer`, and automatically uploads it into Google Cloud Identity (`POST .../idpCredentials:add`).
+
+#### Option 0A.2-B: Automated Standalone Azure CLI + Microsoft Graph Script (Step 0A.2 Only)
+If you already created the OAuth App in Step 0A.1 and want to automate **Step 0A.2** directly using Azure CLI (`az rest`) and `gcloud`, run this copy-pasteable block:
+
+```bash
+export ENTRA_TENANT_ID="<cymbal-entra-tenant-uuid>"
+export CUSTOMER_NAME="cymbal"
+export CUSTOMER_DOMAIN="cymbal.com"
+export GCP_PROJECT_ID="cymbal-ge-prod"
+export CLOUD_IDENTITY_CUSTOMER_ID="customers/<CymbalCustomerID>"
+export GALLERY_TEMPLATE_ID="8b1025e4-1dd2-430b-a150-2ef79cd700f5"
+export SAML_APP_NAME="CYMBAL Google Cloud & Gemini Enterprise SSO"
+
+# 1. Pre-create / fetch Cloud Identity Inbound SAML SSO Profile to obtain SP Entity ID & ACS URL
+GCP_TOKEN="$(gcloud auth print-access-token)"
+CREATE_SSO_RESP="$(curl -sS -X POST "https://cloudidentity.googleapis.com/v1/inboundSamlSsoProfiles" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"customer\": \"${CLOUD_IDENTITY_CUSTOMER_ID}\",
+    \"displayName\": \"CYMBAL Microsoft Entra ID SSO\",
+    \"idpConfig\": {
+      \"entityId\": \"https://sts.windows.net/${ENTRA_TENANT_ID}/\",
+      \"singleSignOnServiceUri\": \"https://login.microsoftonline.com/${ENTRA_TENANT_ID}/saml2\"
+    }
+  }")"
+
+SAML_PROFILE_NAME="$(echo "${CREATE_SSO_RESP}" | jq -r '.response.name // .name')"
+SAML_SP_ENTITY_ID="$(echo "${CREATE_SSO_RESP}" | jq -r '.response.spConfig.entityId // .spConfig.entityId')"
+SAML_SP_ACS_URL="$(echo "${CREATE_SSO_RESP}" | jq -r '.response.spConfig.assertionConsumerServiceUri // .spConfig.assertionConsumerServiceUri')"
+
+# 2. Instantiate "Google Cloud / G Suite Connector by Microsoft" from the Entra Gallery
+SAML_INSTANTIATE_JSON="$(az rest \
+  --method POST \
+  --uri "https://graph.microsoft.com/v1.0/applicationTemplates/${GALLERY_TEMPLATE_ID}/instantiate" \
+  --headers "Content-Type=application/json" \
+  --body "{\"displayName\": \"${SAML_APP_NAME}\"}")"
+
+SAML_SP_ID="$(echo "${SAML_INSTANTIATE_JSON}" | jq -r '.servicePrincipal.id')"
+SAML_APP_ID="$(echo "${SAML_INSTANTIATE_JSON}" | jq -r '.application.id')"
+
+# 3. Configure SAML Mode, Identifier (Entity ID), Reply URL (ACS URL) & Sign-on URL
+az rest \
+  --method PATCH \
+  --uri "https://graph.microsoft.com/v1.0/applications/${SAML_APP_ID}" \
+  --headers "Content-Type=application/json" \
+  --body "{
+    \"identifierUris\": [\"${SAML_SP_ENTITY_ID}\", \"https://www.google.com/a/${CUSTOMER_DOMAIN}\"],
+    \"web\": {
+      \"redirectUris\": [\"${SAML_SP_ACS_URL}\", \"https://www.google.com/a/${CUSTOMER_DOMAIN}/acs\", \"https://www.google.com\"]
+    }
+  }"
+
+az rest \
+  --method PATCH \
+  --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${SAML_SP_ID}" \
+  --headers "Content-Type=application/json" \
+  --body "{
+    \"preferredSingleSignOnMode\": \"saml\",
+    \"loginUrl\": \"https://www.google.com/a/${CUSTOMER_DOMAIN}/ServiceLogin?continue=https://vertexaisearch.cloud.google.com\",
+    \"appRoleAssignmentRequired\": true
+  }"
+
+# 4. Create & Assign Cymbal's 5 Department Security Groups to the SAML Enterprise App
+for grp_nick in ge-service-desk-users ge-finance-users ge-hr-users ge-skill-developers all-ge-apps-users; do
+  GRP_ID="$(az ad group list --filter "mailNickname eq '${grp_nick}'" --query "[0].id" -o tsv)"
+  if [[ -z "${GRP_ID}" ]]; then
+    GRP_ID="$(az ad group create --display-name "CYMBAL ${grp_nick}" --mail-nickname "${grp_nick}" --query "id" -o tsv)"
+  fi
+  az rest \
+    --method POST \
+    --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${SAML_SP_ID}/appRoleAssignedTo" \
+    --headers "Content-Type=application/json" \
+    --body "{\"principalId\": \"${GRP_ID}\", \"resourceId\": \"${SAML_SP_ID}\", \"appRoleId\": \"00000000-0000-0000-0000-000000000000\"}"
+done
+
+# 5. Generate SAML X.509 Token-Signing Certificate & Upload Directly to Google Cloud Identity
+CERT_JSON="$(az rest \
+  --method POST \
+  --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${SAML_SP_ID}/addTokenSigningCertificate" \
+  --headers "Content-Type=application/json" \
+  --body "{\"displayName\": \"CN=cymbal Google Cloud SAML Signing\"}")"
+
+CERT_PEM="-----BEGIN CERTIFICATE-----\n$(echo "${CERT_JSON}" | jq -r '.key')\n-----END CERTIFICATE-----"
+curl -sS -X POST "https://cloudidentity.googleapis.com/v1/${SAML_PROFILE_NAME}/idpCredentials:add" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "$(jq -n --arg pem "$(printf '%b' "${CERT_PEM}")" '{pemData: $pem}')"
+```
+
+#### Option 0A.2-C: Manual `entra.microsoft.com` Portal UI Reference (Step 0A.2)
+If Cymbal's identity team prefers manual UI clicks instead of Option 0A.2-A or Option 0A.2-B:
 1. In **[entra.microsoft.com](https://entra.microsoft.com)**, navigate to **Identity -> Applications -> Enterprise applications -> + New application**.
 2. In the gallery search box, type:
    ```text
@@ -220,7 +341,7 @@ If Cymbal's identity team requires manual UI execution instead of Option A/B, fo
    - `ge-skill-developers@cymbal.com`
    - `all-ge-apps-users@cymbal.com`
 5. Navigate to **Manage -> Single sign-on** and select **SAML**:
-   - Leave this browser tab open—in **Phase 1**, `./deploy_identity.sh` will automatically create the Inbound SAML Profile in Google Cloud Identity and print the exact `SAML SP Entity ID` and `SAML SP ACS (Reply) URL` to paste here.
+   - Paste `https://accounts.google.com/samlrp/<profile_id>` into **Identifier (Entity ID)** and `https://accounts.google.com/samlrp/<profile_id>/acs` into **Reply URL (ACS URL)**.
 
 ---
 
