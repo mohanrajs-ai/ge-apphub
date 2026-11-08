@@ -482,8 +482,14 @@ sync_entra_entities_to_cloud_identity() {
   provision_clean_entra_app_groups
 
   # 1. Build app_group_mappings JSON array from ENTRA_TO_APP_GROUP_MAPPINGS
+  #    and ensure each target Per-App Cloud Identity group exists before Terraform lookup
   local mappings_json="[]"
   if [[ -n "${ENTRA_TO_APP_GROUP_MAPPINGS:-}" ]]; then
+    local existing_ci_groups="{}"
+    if [[ "${DRY_RUN:-false}" != "true" && -n "${CLOUD_IDENTITY_CUSTOMER_ID:-}" ]]; then
+      existing_ci_groups="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" "" "true" || echo '{}')"
+    fi
+
     IFS=',' read -r -a map_pairs <<< "${ENTRA_TO_APP_GROUP_MAPPINGS}"
     for pair in "${map_pairs[@]}"; do
       pair="$(echo "${pair}" | xargs)"
@@ -491,8 +497,33 @@ sync_entra_entities_to_cloud_identity() {
       local src_member="${pair%%:*}"
       local dst_app_group="${pair#*:}"
       src_member="$(_normalize_principal_email "${src_member}")"
-      dst_app_group="$(echo "${dst_app_group}" | xargs)"
+      src_member="$(printf '%s' "${src_member}" | tr '[:upper:]' '[:lower:]')"
+      dst_app_group="$(echo "${dst_app_group}" | xargs | tr '[:upper:]' '[:lower:]')"
       if [[ -n "${src_member}" && -n "${dst_app_group}" ]]; then
+        if [[ "${DRY_RUN:-false}" != "true" && -n "${CLOUD_IDENTITY_CUSTOMER_ID:-}" ]]; then
+          local found_dst
+          found_dst="$(echo "${existing_ci_groups}" | jq -r --arg em "${dst_app_group}" '.groups[]? | select((.groupKey.id | ascii_downcase) == ($em | ascii_downcase)) | .name' 2>/dev/null | head -n 1 || true)"
+          if [[ -z "${found_dst}" ]]; then
+            log_info "Pre-creating target Per-App Cloud Identity group '${dst_app_group}' for group nesting..."
+            local app_grp_payload
+            app_grp_payload="$(jq -n \
+              --arg parent "${CLOUD_IDENTITY_CUSTOMER_ID}" \
+              --arg email "${dst_app_group}" \
+              --arg dn "${dst_app_group%@*}" \
+              '{
+                parent: $parent,
+                groupKey: {id: $email},
+                displayName: $dn,
+                description: ("Dedicated Gemini Enterprise Per-App access group for " + $email),
+                labels: {
+                  "cloudidentity.googleapis.com/groups.discussion_forum": "",
+                  "cloudidentity.googleapis.com/groups.security": ""
+                }
+              }')"
+            ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/groups?initialGroupConfig=EMPTY" "${app_grp_payload}" "true" >/dev/null || true
+          fi
+        fi
+
         mappings_json="$(echo "${mappings_json}" | jq -c \
           --arg app_grp "${dst_app_group}" \
           --arg mem "${src_member}" \
@@ -583,6 +614,7 @@ sync_entra_entities_to_cloud_identity() {
           m_mail="$(echo "${m_obj}" | jq -r '.mail // empty')"
           m_upn="$(echo "${m_obj}" | jq -r '.userPrincipalName // empty')"
           norm_mem="$(_normalize_principal_email "${m_mail:-${m_upn}}")"
+          norm_mem="$(printf '%s' "${norm_mem}" | tr '[:upper:]' '[:lower:]')"
           if [[ -n "${norm_mem}" ]]; then
             members_arr="$(echo "${members_arr}" | jq -c --arg m "${norm_mem}" '. + [$m] | unique')"
           fi
