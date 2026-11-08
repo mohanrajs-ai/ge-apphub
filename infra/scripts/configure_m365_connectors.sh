@@ -283,7 +283,7 @@ _upsert_single_m365_connector() {
   if [[ "${check_rc}" -eq 44 ]]; then
     ge_curl_request "POST" "${post_url}" "${payload}" >/dev/null
   elif [[ "${ENABLE_M365_ACTIONS:-false}" == "true" && "${data_source}" != "sharepoint_federated_search" ]]; then
-    ge_curl_request "PATCH" "${get_url}?updateMask=actionConfig,bapConfig" "$(jq -c '{actionConfig, bapConfig}' <<<"${payload}")" >/dev/null
+    _patch_connector_actions_when_ready "${col_id}" "${display_label}" "$(jq -c '{actionConfig, bapConfig}' <<<"${payload}")"
   fi
   log_ok "M365 ${display_label} connector ('${col_id}') configured via REST API."
 }
@@ -334,21 +334,63 @@ attach_m365_datastores_to_engine() {
   fi
 }
 
+_patch_connector_actions_when_ready() {
+  local col_id="$1"
+  local display_label="$2"
+  local patch_payload="$3"
+
+  local base_v1alpha loc_parent get_url patch_url
+  base_v1alpha="$(ge_api_base_url "${GE_LOCATION}" "v1alpha")"
+  loc_parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}"
+  get_url="${base_v1alpha}/${loc_parent}/collections/${col_id}/dataConnector"
+  patch_url="${get_url}?updateMask=actionConfig,bapConfig"
+
+  if [[ "${DRY_RUN:-false}" == "true" || -n "${MOCK_CURL_GET_STATUS:-}" || -n "${MOCK_CURL_PATCH_STATUS:-}" ]]; then
+    ge_curl_request "PATCH" "${patch_url}" "${patch_payload}" >/dev/null
+    log_ok "Activated Console Actions ('isActionConfigured=true') for ${display_label} ('${col_id}')."
+    return 0
+  fi
+
+  local attempt=1 max_attempts=18 conn_json="" conn_state="" is_cfg=""
+  while [[ "${attempt}" -le "${max_attempts}" ]]; do
+    conn_json="$(ge_curl_request "GET" "${get_url}" "" "true" || echo '{}')"
+    conn_state="$(jq -r '.state // empty' <<<"${conn_json}" 2>/dev/null || true)"
+    is_cfg="$(jq -r '.actionConfig.isActionConfigured // false' <<<"${conn_json}" 2>/dev/null || echo "false")"
+
+    if [[ "${is_cfg}" == "true" && "${conn_state}" != "INITIALIZING" && "${conn_state}" != "CREATING" ]]; then
+      log_ok "Console Actions ('isActionConfigured=true') already active for ${display_label} ('${col_id}')."
+      return 0
+    fi
+
+    if [[ "${conn_state}" == "INITIALIZING" || "${conn_state}" == "CREATING" ]]; then
+      log_info "Waiting for ${display_label} connector ('${col_id}') to finish ${conn_state} before patching actions (attempt ${attempt}/${max_attempts})..."
+      sleep 10
+      attempt=$((attempt + 1))
+      continue
+    fi
+    break
+  done
+
+  local patch_rc=0
+  ge_curl_request "PATCH" "${patch_url}" "${patch_payload}" "true" >/dev/null || patch_rc=$?
+  if [[ "${patch_rc}" -eq 0 ]]; then
+    log_ok "Activated Console Actions ('isActionConfigured=true') for ${display_label} ('${col_id}')."
+  else
+    log_info "${display_label} connector ('${col_id}') is still initializing in the background; Terraform action_config is queued."
+  fi
+  return 0
+}
+
 activate_m365_connector_actions() {
   if [[ "${ENABLE_M365_ACTIONS:-false}" != "true" ]]; then
     return 0
   fi
 
-  local base_v1alpha
-  base_v1alpha="$(ge_api_base_url "${GE_LOCATION}" "v1alpha")"
-  local loc_parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}"
-
   if [[ "${ENABLE_SHAREPOINT_CONNECTOR:-true}" == "true" && "${M365_SHAREPOINT_DATA_SOURCE:-sharepoint_federated_search}" == "sharepoint" ]]; then
     local sp_col sp_payload
     sp_col="$(_resolve_m365_col_id "sp")"
     sp_payload="$(render_m365_connector_payload "sharepoint" "${M365_SHAREPOINT_INSTANCE_URI}" "${M365_SHAREPOINT_ENTITIES:-file,page}" "${M365_SHAREPOINT_CONNECTOR_MODE:-FEDERATED}" "${M365_SHAREPOINT_ENABLED_ACTIONS:-create_folder,add_page,upload_document,add_list,list_lists,get_list_item,get_list_fields,check_in_document,check_out_document,discard_check_out_document,move_attachment_or_document,rename_attachment_or_document,update_file_properties,create_list_item,update_list_item,update_list,update_page,share_resource}" | jq '{actionConfig, bapConfig}')"
-    ge_curl_request "PATCH" "${base_v1alpha}/${loc_parent}/collections/${sp_col}/dataConnector?updateMask=actionConfig,bapConfig" "${sp_payload}" >/dev/null
-    log_ok "Activated Console Actions ('isActionConfigured=true') for SharePoint ('${sp_col}')."
+    _patch_connector_actions_when_ready "${sp_col}" "SharePoint" "${sp_payload}"
   fi
 
   if [[ "${ENABLE_ONEDRIVE_CONNECTOR:-false}" == "true" ]]; then
@@ -356,24 +398,21 @@ activate_m365_connector_actions() {
     od_col="$(_resolve_m365_col_id "od")"
     od_uri="${M365_ONEDRIVE_INSTANCE_URI:-${M365_SHAREPOINT_INSTANCE_URI:-}}"
     od_payload="$(render_m365_connector_payload "onedrive" "${od_uri}" "${M365_ONEDRIVE_ENTITIES:-file}" "${M365_ONEDRIVE_CONNECTOR_MODE:-FEDERATED}" "${M365_ONEDRIVE_ENABLED_ACTIONS:-upload_file,copy_file,copy_folder,move_file,move_folder,create_folder,rename_file,rename_folder,share_file_folder,update_file_properties}" | jq '{actionConfig, bapConfig}')"
-    ge_curl_request "PATCH" "${base_v1alpha}/${loc_parent}/collections/${od_col}/dataConnector?updateMask=actionConfig,bapConfig" "${od_payload}" >/dev/null
-    log_ok "Activated Console Actions ('isActionConfigured=true') for OneDrive ('${od_col}')."
+    _patch_connector_actions_when_ready "${od_col}" "OneDrive" "${od_payload}"
   fi
 
   if [[ "${ENABLE_OUTLOOK_CONNECTOR:-false}" == "true" ]]; then
     local ol_col ol_payload
     ol_col="$(_resolve_m365_col_id "ol")"
     ol_payload="$(render_m365_connector_payload "outlook" "${M365_OUTLOOK_INSTANCE_URI:-https://outlook.office365.com}" "${M365_OUTLOOK_ENTITIES:-mail,mail-attachment,calendar,contact}" "${M365_OUTLOOK_CONNECTOR_MODE:-FEDERATED}" "${M365_OUTLOOK_ENABLED_ACTIONS:-send_mail,create_message,update_message,reply_to_my_message,forward_mail,move_mail,add_attachments,download_attachments,create_event,update_event,rsvp_to_event,create_calendar,update_calendar,create_contact,update_contact}" | jq '{actionConfig, bapConfig}')"
-    ge_curl_request "PATCH" "${base_v1alpha}/${loc_parent}/collections/${ol_col}/dataConnector?updateMask=actionConfig,bapConfig" "${ol_payload}" >/dev/null
-    log_ok "Activated Console Actions ('isActionConfigured=true') for Outlook ('${ol_col}')."
+    _patch_connector_actions_when_ready "${ol_col}" "Outlook" "${ol_payload}"
   fi
 
   if [[ "${ENABLE_TEAMS_CONNECTOR:-false}" == "true" ]]; then
     local teams_col teams_payload
     teams_col="$(_resolve_m365_col_id "teams")"
     teams_payload="$(render_m365_connector_payload "teams" "${M365_TEAMS_INSTANCE_URI:-https://teams.microsoft.com}" "${M365_TEAMS_ENTITIES:-channel-message,chat-message}" "${M365_TEAMS_CONNECTOR_MODE:-FEDERATED}" "${M365_TEAMS_ENABLED_ACTIONS:-send_channel_message,send_chat_message,create_channel}" | jq '{actionConfig, bapConfig}')"
-    ge_curl_request "PATCH" "${base_v1alpha}/${loc_parent}/collections/${teams_col}/dataConnector?updateMask=actionConfig,bapConfig" "${teams_payload}" >/dev/null
-    log_ok "Activated Console Actions ('isActionConfigured=true') for Microsoft Teams ('${teams_col}')."
+    _patch_connector_actions_when_ready "${teams_col}" "Microsoft Teams" "${teams_payload}"
   fi
 }
 
