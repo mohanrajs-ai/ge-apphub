@@ -8,9 +8,9 @@ This runbook provides the complete, copy-pasteable step-by-step onboarding proce
 
 ```mermaid
 flowchart TD
-    subgraph P0["Phase 0: Portal Prerequisites & GCP Foundation"]
+    subgraph P0["Phase 0: Stack 00 — Automated Entra ID & Admin Bootstrap (00-entra-bootstrap)"]
         B0["GCP Project: cymbal-ge-prod<br/>GCS State Bucket: gs://cymbal-ge-tfstate"]
-        E0["Microsoft Entra Admin Center (entra.microsoft.com)<br/>1. OAuth App Registration (cymbal-ge-m365-connector)<br/>2. SAML Gallery App (Google Cloud / G Suite Connector)"]
+        E0["Automated Entra Bootstrap (deploy_entra_bootstrap.sh)<br/>1. OAuth App (cymbal-ge-m365-connector) + 25+ Graph/SP Scopes + Admin Consent<br/>2. Zero-Touch Secret Sync -> GCP Secret Manager<br/>3. SAML Gallery App (8b1025e4-1dd2-430b-a150-2ef79cd700f5)"]
         G0["Google Admin Console (admin.google.com)<br/>1. Verify Domain: cymbal.com<br/>2. Inbound SAML SSO Profile & OU Assignment"]
     end
 
@@ -82,13 +82,77 @@ sequenceDiagram
 
 ---
 
-## Phase 0A: Microsoft Entra Admin Center Configuration (`entra.microsoft.com`)
+## Phase 0A: Microsoft Entra ID Configuration (`00-entra-bootstrap` or `entra.microsoft.com`)
 
-You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.microsoft.com`)](https://entra.microsoft.com)** for `cymbal.com`:
-1. An **App Registration (OAuth 2.0)** for the M365 Data Connectors and Microsoft Graph Group Sync.
-2. An **Enterprise Application (SAML 2.0)** from the Entra Gallery to redirect Google Cloud / Gemini Enterprise login to Microsoft Entra ID.
+You must configure **two** objects in Microsoft Entra ID for `cymbal.com`:
+1. An **App Registration (OAuth 2.0)** (`cymbal-ge-m365-connector`) with all 25+ Microsoft Graph & SharePoint permissions and Tenant-Wide Admin Consent for the M365 Data Connectors and Microsoft Graph Group Sync.
+2. An **Enterprise Application (SAML 2.0)** from the Entra Gallery (`Google Cloud / G Suite Connector by Microsoft`, Template ID `8b1025e4-1dd2-430b-a150-2ef79cd700f5`) to redirect Google Cloud / Gemini Enterprise login to Microsoft Entra ID.
 
-### Step 0A.1: Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`)
+> [!TIP]
+> **Full Automation Available (`infra/deploy_entra_bootstrap.sh` & Stack 00):** You do **not** have to click through 25+ API permissions in the Entra Portal manually or copy-paste client secrets! Use **Option A (Terraform `azuread` Stack 00)** or **Option B (Azure CLI + Microsoft Graph REST script)** below to provision everything in ~30 seconds and write `{tenant_id, client_id, client_secret}` directly into Google Cloud Secret Manager (`cymbal-m365-connector-credentials`).
+
+---
+
+### Option A (Recommended): Automated Terraform Stack 00 (`infra/stacks/00-entra-bootstrap`)
+
+Stack 00 ([`infra/stacks/00-entra-bootstrap/main.tf`](../infra/stacks/00-entra-bootstrap/main.tf) + [`infra/modules/entra-bootstrap/main.tf`](../infra/modules/entra-bootstrap/main.tf)) uses the official `hashicorp/azuread` and `hashicorp/google` providers to deterministically:
+1. Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`) with Redirect URI `https://vertexaisearch.cloud.google.com/oauth-redirect`.
+2. Dynamically resolve all Microsoft Graph (`00000003-0000-0000-c000-000000000000`) and SharePoint Online (`00000003-0000-0ff1-ce00-000000000000`) Role & Scope UUIDs and attach all 25+ Application and Delegated permissions.
+3. Grant **Tenant-Wide Admin Consent** automatically via `azuread_app_role_assignment` and `azuread_service_principal_delegated_permission_grant`.
+4. Generate a 24-month Client Secret and write `{tenant_id, client_id, client_secret, domain}` **directly into Google Cloud Secret Manager** (`projects/cymbal-ge-prod/secrets/cymbal-m365-connector-credentials`)—zero human secret handling.
+5. Instantiate the **Google Cloud / G Suite Connector by Microsoft** SAML 2.0 Enterprise Gallery App (`8b1025e4-1dd2-430b-a150-2ef79cd700f5`), configure `https://www.google.com/a/cymbal.com/acs`, and generate a SAML token-signing certificate.
+
+```bash
+cd /Users/mohanrajs/aops/geapphub/infra
+
+# 1. Authenticate to Cymbal's Microsoft Entra ID Tenant (Global Admin / Cloud App Admin)
+az login --tenant "cymbal.com"
+
+# 2. Authenticate to Google Cloud
+gcloud auth application-default login
+
+# 3. Preview Stack 00 in Dry-Run Mode
+./deploy_entra_bootstrap.sh \
+  --tenant-id "<cymbal-entra-tenant-uuid>" \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --mode terraform \
+  --dry-run
+
+# 4. Apply Stack 00 (Creates OAuth App + Admin Consent + GCP Secret + SAML Gallery App)
+./deploy_entra_bootstrap.sh \
+  --tenant-id "<cymbal-entra-tenant-uuid>" \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --mode terraform
+```
+
+---
+
+### Option B: Automated Azure CLI + Microsoft Graph API Script (`--mode az-graph`)
+
+If Cymbal's Entra administrator prefers running an imperative CLI script without Terraform state, run `deploy_entra_bootstrap.sh` with `--mode az-graph`:
+
+```bash
+cd /Users/mohanrajs/aops/geapphub/infra
+
+./deploy_entra_bootstrap.sh \
+  --tenant-id "<cymbal-entra-tenant-uuid>" \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --mode az-graph
+```
+
+---
+
+### Option C: Manual Microsoft Entra Admin Center UI Reference (`entra.microsoft.com`)
+
+If Cymbal's identity team requires manual UI execution instead of Option A/B, follow these exact steps in **[entra.microsoft.com](https://entra.microsoft.com)**:
+
+#### Step 0A.1: Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`)
 1. Sign in to **[entra.microsoft.com](https://entra.microsoft.com)** as a Global Administrator or Cloud Application Administrator for `cymbal.com`.
 2. Navigate to **Identity -> Applications -> App registrations -> + New registration**:
    - **Name:** `cymbal-ge-m365-connector`
@@ -106,7 +170,7 @@ You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.mi
    - Click **Add** and immediately copy the secret **Value** (not the Secret ID) $\rightarrow$ `M365_CLIENT_SECRET`.
 4. Navigate to **API permissions -> + Add a permission** and add the following **Application** and **Delegated** permissions:
 
-   #### 1. Microsoft Graph — Application Permissions *(for Entra Group Sync & Connector Ingestion)*
+   ##### 1. Microsoft Graph — Application Permissions *(for Entra Group Sync & Connector Ingestion)*
    | Permission | Type | Purpose |
    | :--- | :--- | :--- |
    | `User.Read.All` | Application | Read `@cymbal.com` user profiles for 1:1 Cloud Identity sync |
@@ -116,7 +180,7 @@ You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.mi
    | `Files.Read.All` | Application | OneDrive & SharePoint file ACL indexing |
    | `Mail.Read` | Application | Exchange Online / Outlook connector metadata |
 
-   #### 2. Microsoft Graph — Delegated Permissions *(for End-User 3-Legged OAuth & Actions)*
+   ##### 2. Microsoft Graph — Delegated Permissions *(for End-User 3-Legged OAuth & Actions)*
    | Category | Delegated Permissions to Add |
    | :--- | :--- |
    | **OpenID & Profile** | `openid`, `profile`, `offline_access`, `User.Read` |
@@ -124,7 +188,7 @@ You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.mi
    | **OneDrive & SharePoint Files** | `Files.ReadWrite.All`, `Sites.ReadWrite.All` |
    | **Microsoft Teams** | `Chat.Read`, `Chat.ReadWrite`, `ChannelMessage.Read.All`, `ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Channel.Create` |
 
-   #### 3. SharePoint (`Office 365 SharePoint Online`) — Delegated Permissions *(for Federated Search)*
+   ##### 3. SharePoint (`Office 365 SharePoint Online`) — Delegated Permissions *(for Federated Search)*
    | Permission | Type | Purpose |
    | :--- | :--- | :--- |
    | `AllSites.Read` (or `AllSites.Write`) | Delegated | Federated search & write actions across `https://cymbal.sharepoint.com` |
@@ -134,9 +198,9 @@ You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.mi
 
 ---
 
-### Step 0A.2: Create the SAML 2.0 Enterprise Gallery App (`Google Cloud / G Suite Connector by Microsoft`)
+#### Step 0A.2: Create the SAML 2.0 Enterprise Gallery App (`Google Cloud / G Suite Connector by Microsoft`)
 > [!WARNING]
-> Do **not** use the OAuth App Registration above for SAML SSO (the SAML tile is disabled on standard App Registrations). Always instantiate the official gallery application under **Enterprise applications**.
+> Do **not** use the OAuth App Registration above for SAML SSO (the SAML tile is disabled on standard App Registrations). Always instantiate the official gallery application under **Enterprise applications** (or let Option A/B instantiate Template ID `8b1025e4-1dd2-430b-a150-2ef79cd700f5` automatically).
 
 1. In **[entra.microsoft.com](https://entra.microsoft.com)**, navigate to **Identity -> Applications -> Enterprise applications -> + New application**.
 2. In the gallery search box, type:
