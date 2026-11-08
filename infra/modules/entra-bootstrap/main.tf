@@ -300,22 +300,12 @@ data "azuread_service_principal" "google_cloud_saml" {
   object_id = azuread_application_from_template.google_cloud_saml.service_principal_object_id
 }
 
-# Configure SAML Entity ID (Identifier URI) when Cloud Identity SP Entity ID is provided
-resource "azuread_application_identifier_uri" "google_cloud_saml_sp_entity_id" {
-  count          = var.saml_sp_entity_id != "" ? 1 : 0
-  application_id = azuread_application_from_template.google_cloud_saml.application_id
-  identifier_uri = var.saml_sp_entity_id
-}
-
-# Configure SAML Reply URLs (Assertion Consumer Service URLs)
-resource "azuread_application_redirect_uris" "google_cloud_saml_acs_urls" {
-  application_id = azuread_application_from_template.google_cloud_saml.application_id
-  type           = "Web"
-  redirect_uris = compact(distinct([
-    var.saml_sp_acs_url,
-    "https://www.google.com/a/${var.customer_domain}/acs",
-    "https://www.google.com",
-  ]))
+locals {
+  # The "Google Cloud / G Suite Connector by Microsoft" Gallery App defines the "msiam_access" App Role
+  saml_app_role_id = try(
+    [for r in data.azuread_service_principal.google_cloud_saml.app_roles : r.id if r.display_name == "msiam_access" || r.enabled][0],
+    "7dfd756e-8c27-4472-b2b7-38c17fc5de5e"
+  )
 }
 
 # Generate SAML 2.0 Token Signing Certificate on the Gallery Service Principal
@@ -336,7 +326,7 @@ resource "azuread_group" "department_groups" {
 # Assign all 5 Department Security Groups to the Google Cloud SAML Enterprise App
 resource "azuread_app_role_assignment" "saml_group_assignments" {
   for_each            = azuread_group.department_groups
-  app_role_id         = "00000000-0000-0000-0000-000000000000"
+  app_role_id         = local.saml_app_role_id
   principal_object_id = each.value.object_id
   resource_object_id  = data.azuread_service_principal.google_cloud_saml.object_id
 }

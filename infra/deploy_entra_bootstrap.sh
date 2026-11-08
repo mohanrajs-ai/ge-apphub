@@ -327,6 +327,36 @@ if [[ "${MODE}" == "terraform" ]]; then
   terraform apply -input=false tfplan
   rm -f tfplan
 
+  SAML_APP_OBJ_ID="$(terraform output -raw saml_application_object_id 2>/dev/null || true)"
+  SAML_SP_OBJ_ID="$(terraform output -raw saml_service_principal_object_id 2>/dev/null || true)"
+  if [[ -n "${SAML_APP_OBJ_ID}" && -n "${SAML_SP_OBJ_ID}" ]]; then
+    echo "[3.5/4] Configuring SAML Mode, Entity ID & Reply URLs (ACS) on Gallery App (${SAML_APP_OBJ_ID})..."
+    SAML_URLS_PAYLOAD="$(python3 - "${CUSTOMER_DOMAIN}" "${SAML_SP_ENTITY_ID}" "${SAML_SP_ACS_URL}" <<'PYEOF'
+import json, sys
+domain, sp_entity, sp_acs = sys.argv[1], sys.argv[2], sys.argv[3]
+id_uris = [u for u in [sp_entity, f"https://www.google.com/a/{domain}"] if u]
+acs_uris = [u for u in [sp_acs, f"https://www.google.com/a/{domain}/acs", "https://www.google.com"] if u]
+print(json.dumps({
+    "identifierUris": list(dict.fromkeys(id_uris)),
+    "web": {"redirectUris": list(dict.fromkeys(acs_uris))}
+}))
+PYEOF
+    )"
+    az rest --method PATCH \
+      --uri "https://graph.microsoft.com/v1.0/applications/${SAML_APP_OBJ_ID}" \
+      --headers "Content-Type=application/json" \
+      --body "${SAML_URLS_PAYLOAD}" >/dev/null 2>&1 || true
+
+    az rest --method PATCH \
+      --uri "https://graph.microsoft.com/v1.0/servicePrincipals/${SAML_SP_OBJ_ID}" \
+      --headers "Content-Type=application/json" \
+      --body "{
+        \"preferredSingleSignOnMode\": \"saml\",
+        \"loginUrl\": \"https://www.google.com/a/${CUSTOMER_DOMAIN}/ServiceLogin?continue=https://vertexaisearch.cloud.google.com\",
+        \"appRoleAssignmentRequired\": true
+      }" >/dev/null 2>&1 || true
+  fi
+
   echo "[4/4] Exporting SAML X.509 Signing Certificate to ${SAML_CERT_OUT}..."
   terraform output -raw saml_idp_certificate_pem > "${SAML_CERT_OUT}" || true
   upload_cert_to_cloud_identity "${SAML_CERT_OUT}"
@@ -528,6 +558,8 @@ if raw:
   upload_cert_to_cloud_identity "${SAML_CERT_OUT}"
 
   echo "[8/8] [Step 0A.2] Creating & assigning Cymbal's 5 Department Security Groups to '${SAML_APP_NAME}'..."
+  SAML_APP_ROLE_ID=$(az ad sp show --id "${SAML_SP_ID}" --query "appRoles[?displayName=='msiam_access'].id | [0]" -o tsv || true)
+  SAML_APP_ROLE_ID="${SAML_APP_ROLE_ID:-7dfd756e-8c27-4472-b2b7-38c17fc5de5e}"
   for grp_nick in "${DEPARTMENT_GROUPS[@]}"; do
     GRP_ID=$(az ad group list --filter "mailNickname eq '${grp_nick}'" --query "[0].id" -o tsv || true)
     if [[ -z "${GRP_ID}" ]]; then
@@ -548,7 +580,7 @@ if raw:
       --body "{
         \"principalId\": \"${GRP_ID}\",
         \"resourceId\": \"${SAML_SP_ID}\",
-        \"appRoleId\": \"00000000-0000-0000-0000-000000000000\"
+        \"appRoleId\": \"${SAML_APP_ROLE_ID}\"
       }" >/dev/null 2>&1 || true
     echo "      Assigned '${grp_nick}' -> '${SAML_APP_NAME}'"
   done
