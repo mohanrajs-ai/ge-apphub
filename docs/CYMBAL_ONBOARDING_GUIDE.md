@@ -1,6 +1,6 @@
 # End-to-End Enterprise Onboarding Guide: **Cymbal (`cymbal.com`)**
 
-This runbook provides the complete, copy-pasteable step-by-step onboarding procedure for **Cymbal** (`cymbal.com`) using the **Gemini Enterprise AppHub & AI Skill Hub** monorepo (`geapphub`).
+This runbook provides the complete, copy-pasteable step-by-step onboarding procedure for **Cymbal** (`cymbal.com`)—including **Microsoft Entra Admin Center (`entra.microsoft.com`)**, **Google Admin Console (`admin.google.com`)**, **Modular Terraform Stacks (01, 02, 03)**, the **Universal ADK Skill & Sub-Skill Orchestrator (`agents-cli`)**, and the **Multi-App AI Skill Hub**.
 
 ---
 
@@ -8,8 +8,10 @@ This runbook provides the complete, copy-pasteable step-by-step onboarding proce
 
 ```mermaid
 flowchart TD
-    subgraph P0["Phase 0: GCP & State Foundation"]
+    subgraph P0["Phase 0: Portal Prerequisites & GCP Foundation"]
         B0["GCP Project: cymbal-ge-prod<br/>GCS State Bucket: gs://cymbal-ge-tfstate"]
+        E0["Microsoft Entra Admin Center (entra.microsoft.com)<br/>1. OAuth App Registration (cymbal-ge-m365-connector)<br/>2. SAML Gallery App (Google Cloud / G Suite Connector)"]
+        G0["Google Admin Console (admin.google.com)<br/>1. Verify Domain: cymbal.com<br/>2. Inbound SAML SSO Profile & OU Assignment"]
     end
 
     subgraph P1["Phase 1: Stack 01 — Identity & WIF (01-identity-foundation)"]
@@ -40,6 +42,28 @@ flowchart TD
     P0 --> P1 --> P2 --> P3 --> P4
 ```
 
+### End-to-End Authentication & 1:1 ACL Enforcement Flow (`cymbal.com`)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Cymbal User (<user>@cymbal.com)
+    participant GE as Gemini Enterprise App (cymbal-finance-app)
+    participant CI as Google Cloud Identity (admin.google.com)
+    participant Entra as Microsoft Entra ID (entra.microsoft.com)
+    participant M365 as M365 Connectors (SharePoint/OneDrive/Outlook/Teams)
+
+    User->>GE: 1. Opens Gemini Enterprise App URL
+    GE->>CI: 2. Prompts for Google Account -> User enters <user>@cymbal.com
+    CI->>Entra: 3. Redirects via Inbound SAML SSO Profile to Microsoft Entra ID
+    User->>Entra: 4. Signs in as <user>@cymbal.com (Entra Password + Conditional Access MFA)
+    Entra-->>CI: 5. Returns SAML Assertion with NameID/email = <user>@cymbal.com (1:1 match)
+    CI-->>GE: 6. Authenticated as <user>@cymbal.com
+    GE->>CI: 7. Verifies membership in cymbal-finance-app-users@cymbal.com (via ge-finance-users@cymbal.com)
+    GE->>M365: 8. Queries M365 Data Stores & Sub-Skills with calling identity <user>@cymbal.com
+    M365-->>User: 9. Returns SharePoint/OneDrive/Outlook/Teams data strictly scoped to <user>@cymbal.com ACLs
+```
+
 ### Cymbal Environment Reference Table
 
 | Parameter | Cymbal Production Value |
@@ -58,7 +82,98 @@ flowchart TD
 
 ---
 
-## Phase 0: GCP Project, APIs & Remote Terraform State Bucket
+## Phase 0A: Microsoft Entra Admin Center Configuration (`entra.microsoft.com`)
+
+You must configure **two** objects in **[Microsoft Entra Admin Center (`entra.microsoft.com`)](https://entra.microsoft.com)** for `cymbal.com`:
+1. An **App Registration (OAuth 2.0)** for the M365 Data Connectors and Microsoft Graph Group Sync.
+2. An **Enterprise Application (SAML 2.0)** from the Entra Gallery to redirect Google Cloud / Gemini Enterprise login to Microsoft Entra ID.
+
+### Step 0A.1: Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`)
+1. Sign in to **[entra.microsoft.com](https://entra.microsoft.com)** as a Global Administrator or Cloud Application Administrator for `cymbal.com`.
+2. Navigate to **Identity -> Applications -> App registrations -> + New registration**:
+   - **Name:** `cymbal-ge-m365-connector`
+   - **Supported account types:** *Accounts in this organizational directory only (Cymbal only - Single tenant)*
+   - **Redirect URI:** Select **Web** and enter the exact Discovery Engine OAuth callback URL:
+     ```text
+     https://vertexaisearch.cloud.google.com/oauth-redirect
+     ```
+   - Click **Register** and copy:
+     - **Application (client) ID** $\rightarrow$ `M365_CLIENT_ID`
+     - **Directory (tenant) ID** $\rightarrow$ `M365_TENANT_ID`
+3. Navigate to **Certificates & secrets -> Client secrets -> + New client secret**:
+   - **Description:** `Gemini Enterprise M365 Connector & Graph Sync`
+   - **Expires:** `24 months` (or per Cymbal security policy)
+   - Click **Add** and immediately copy the secret **Value** (not the Secret ID) $\rightarrow$ `M365_CLIENT_SECRET`.
+4. Navigate to **API permissions -> + Add a permission** and add the following **Application** and **Delegated** permissions:
+
+   #### 1. Microsoft Graph — Application Permissions *(for Entra Group Sync & Connector Ingestion)*
+   | Permission | Type | Purpose |
+   | :--- | :--- | :--- |
+   | `User.Read.All` | Application | Read `@cymbal.com` user profiles for 1:1 Cloud Identity sync |
+   | `Group.Read.All` | Application | Read `ge-*@cymbal.com` security groups |
+   | `GroupMember.Read.All` | Application | Read transitive group memberships |
+   | `Sites.Read.All` | Application | SharePoint Online connector metadata |
+   | `Files.Read.All` | Application | OneDrive & SharePoint file ACL indexing |
+   | `Mail.Read` | Application | Exchange Online / Outlook connector metadata |
+
+   #### 2. Microsoft Graph — Delegated Permissions *(for End-User 3-Legged OAuth & Actions)*
+   | Category | Delegated Permissions to Add |
+   | :--- | :--- |
+   | **OpenID & Profile** | `openid`, `profile`, `offline_access`, `User.Read` |
+   | **Outlook Mail, Calendar & Contacts** | `Mail.ReadWrite`, `Mail.ReadWrite.Shared`, `Mail.Send`, `Mail.Send.Shared`, `Calendars.ReadWrite`, `Contacts.ReadWrite` |
+   | **OneDrive & SharePoint Files** | `Files.ReadWrite.All`, `Sites.ReadWrite.All` |
+   | **Microsoft Teams** | `Chat.Read`, `Chat.ReadWrite`, `ChannelMessage.Read.All`, `ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Channel.Create` |
+
+   #### 3. SharePoint (`Office 365 SharePoint Online`) — Delegated Permissions *(for Federated Search)*
+   | Permission | Type | Purpose |
+   | :--- | :--- | :--- |
+   | `AllSites.Read` (or `AllSites.Write`) | Delegated | Federated search & write actions across `https://cymbal.sharepoint.com` |
+   | `MyFiles.Read` | Delegated | Federated search across `https://cymbal-my.sharepoint.com` |
+
+5. Click **"Grant admin consent for Cymbal"** at the top of the **API permissions** table and click **Yes** until every permission row shows a green **"Granted for Cymbal"** badge.
+
+---
+
+### Step 0A.2: Create the SAML 2.0 Enterprise Gallery App (`Google Cloud / G Suite Connector by Microsoft`)
+> [!WARNING]
+> Do **not** use the OAuth App Registration above for SAML SSO (the SAML tile is disabled on standard App Registrations). Always instantiate the official gallery application under **Enterprise applications**.
+
+1. In **[entra.microsoft.com](https://entra.microsoft.com)**, navigate to **Identity -> Applications -> Enterprise applications -> + New application**.
+2. In the gallery search box, type:
+   ```text
+   Google Cloud / G Suite Connector by Microsoft
+   ```
+3. Select the tile, name it **`Cymbal Google Cloud & Gemini Enterprise SSO`**, and click **Create**.
+4. Navigate to **Manage -> Users and groups -> + Add user/group** and assign Cymbal's department security groups:
+   - `ge-service-desk-users@cymbal.com`
+   - `ge-finance-users@cymbal.com`
+   - `ge-hr-users@cymbal.com`
+   - `ge-skill-developers@cymbal.com`
+   - `all-ge-apps-users@cymbal.com`
+5. Navigate to **Manage -> Single sign-on** and select **SAML**:
+   - Leave this browser tab open—in **Phase 1**, `./deploy_identity.sh` will automatically create the Inbound SAML Profile in Google Cloud Identity and print the exact `SAML SP Entity ID` and `SAML SP ACS (Reply) URL` to paste here.
+
+---
+
+## Phase 0B: Google Admin Console Configuration (`admin.google.com`)
+
+### Step 0B.1: Retrieve Cymbal's Cloud Identity Customer ID & Verify `cymbal.com`
+1. Sign in to **[Google Admin Console (`admin.google.com`)](https://admin.google.com)** as a Super Admin (`admin@cymbal.com`).
+2. **Copy the Customer ID:**
+   - Navigate to **Account -> Account settings -> Profile**.
+   - Copy the **Customer ID** (e.g., `C01234567`) and prefix it with `customers/` $\rightarrow$ `CLOUD_IDENTITY_CUSTOMER_ID="customers/C01234567"`.
+3. **Verify Corporate Domain (`cymbal.com`):**
+   - Navigate to **Account -> Domains -> Manage domains**.
+   - Ensure `cymbal.com` shows **Verified** (Primary or Secondary domain).
+   - If `cymbal.com` is not yet verified, click **Add a domain**, enter `cymbal.com`, choose **TXT verification record**, copy the `google-site-verification=...` token, add it to Cymbal's DNS zone (or set `MANAGE_DNS_VERIFICATION_RECORD="true"` in `configs/cymbal-identity.env`), and click **Verify**.
+
+### Step 0B.2: Enable Admin API Access for Automated Group & User Sync
+1. In **[admin.google.com](https://admin.google.com)**, navigate to **Security -> Access and data control -> API controls**.
+2. Ensure **Enable API access** is checked so Cloud Identity Groups API and Admin SDK Directory API calls from Stack 01 succeed.
+
+---
+
+## Phase 0C: GCP Project, APIs & Remote Terraform State Bucket (`cymbal-ge-prod`)
 
 Run these commands once to prepare Cymbal's GCP project (`cymbal-ge-prod`) and create the versioned GCS bucket (`gs://cymbal-ge-tfstate`) used for isolated per-stack and per-app Terraform state locking.
 
@@ -96,27 +211,37 @@ gcloud storage buckets update "gs://${TF_STATE_BUCKET}" --versioning
 
 ---
 
-## Phase 1: Identity Foundation (`cymbal.com`) — Stack 01
+## Phase 1: Identity Foundation (`cymbal.com`) & Completing the SAML Handshake — Stack 01
 
-Stack 01 (`infra/stacks/01-identity-foundation` & `infra/deploy_identity.sh`) configures:
-1. **Google Cloud Secret Manager** secret (`cymbal-m365-connector-credentials`) with Entra ID Tenant/Client credentials.
-2. **Cloud Identity Inbound SAML 2.0 SSO Profile** for `cymbal.com` redirecting authentication to Microsoft Entra ID.
-3. **Entra ID -> Cloud Identity Group & Membership Sync** for `startswith(mailNickname,'ge-')` (`ge-service-desk-users@cymbal.com`, `ge-finance-users@cymbal.com`, `ge-hr-users@cymbal.com`, `all-ge-apps-users@cymbal.com`).
+Stack 01 (`infra/stacks/01-identity-foundation` & `infra/deploy_identity.sh`) automates:
+1. **Google Cloud Secret Manager** secret (`cymbal-m365-connector-credentials`) with Cymbal's Entra ID Tenant/Client credentials.
+2. **Cloud Identity Inbound SAML 2.0 SSO Profile** (`Cymbal Microsoft Entra ID SSO`) for `cymbal.com`.
+3. **Entra ID -> Cloud Identity Group & Membership Sync** for `startswith(mailNickname,'ge-')`, nesting each Entra group 1:1 into its corresponding Gemini Enterprise App access group.
 
 > [!IMPORTANT]
 > **Zero-Disk Secret Injection:** Never write `M365_CLIENT_SECRET` to a `.env` file on disk. Export it in your shell session (or pass it through the AppHub Provisioning Studio UI, which injects `TF_VAR_m365_client_secret` in memory and redacts it from all logs).
 
-### Option A: Provision Cymbal Identity via CLI (`deploy_identity.sh`)
+### Step 1.1: Validate Entra Credentials & Run `deploy_identity.sh`
 
 ```bash
 cd /Users/mohanrajs/aops/geapphub/infra
 
-# 1. Export Entra ID credentials in memory (never committed to Git)
+# 1. Export Entra ID credentials in memory (from Phase 0A.1)
 export M365_TENANT_ID="<cymbal-entra-tenant-uuid>"
 export M365_CLIENT_ID="<cymbal-entra-app-client-uuid>"
 export M365_CLIENT_SECRET="<cymbal-entra-app-client-secret>"
 
-# 2. Create Cymbal's identity configuration file
+# 2. Verify OAuth2 client_credentials handshake against Microsoft Identity Platform
+curl -sS -X POST "https://login.microsoftonline.com/${M365_TENANT_ID}/oauth2/v2.0/token" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  --data-urlencode "client_id=${M365_CLIENT_ID}" \
+  --data-urlencode "client_secret=${M365_CLIENT_SECRET}" \
+  --data-urlencode "scope=https://graph.microsoft.com/.default" \
+  --data-urlencode "grant_type=client_credentials" \
+  | jq -e '.access_token != null' >/dev/null \
+  && echo "[OK] Cymbal Microsoft Entra ID credentials validated"
+
+# 3. Create Cymbal's identity configuration file
 cat > configs/cymbal-identity.env <<'EOF'
 GCP_PROJECT_ID="cymbal-ge-prod"
 GCP_REGION="us-central1"
@@ -142,33 +267,65 @@ WORKFORCE_POOL_ID="cymbal-entra-wif-pool"
 WORKFORCE_PROVIDER_ID="cymbal-entra-oidc-provider"
 EOF
 
-# 3. Run Dry-Run / Plan first (Workspace isolated to id-cymbal-com)
+# 4. Run Dry-Run / Plan first (Workspace isolated to id-cymbal-com)
 TF_WORKSPACE_OVERRIDE="id-cymbal-com" ./deploy_identity.sh \
   --config configs/cymbal-identity.env \
   --dry-run
 
-# 4. Apply Identity Foundation
+# 5. Apply Identity Foundation
 TF_WORKSPACE_OVERRIDE="id-cymbal-com" ./deploy_identity.sh \
   --config configs/cymbal-identity.env
 ```
 
-### Option B: Provision Cymbal Identity via AppHub Admin UI
-1. Open the AppHub Portal (`http://localhost:5173`) and sign in as an Admin (`admin@cymbal.com`).
-2. In the left sidebar under **Admin Governance**, click **Provisioning Studio**.
-3. Select the **Stack 01: Identity & WIF (`01-identity-foundation`)** tab.
-4. Enter:
-   - **Corporate Domain:** `cymbal.com` (automatically sets Workspace Lock to `id-cymbal-com`)
-   - **Cloud Identity Customer ID:** `customers/<CymbalCustomerID>`
-   - **Entra Group OData Filter:** `startswith(mailNickname,'ge-')`
-   - **Remote GCS State Bucket:** `cymbal-ge-tfstate`
-   - **Execution Mode:** `PLAN_AND_WAIT`
-5. Click **Run Stack 01: Identity & WIF Plan**, review the generated Terraform plan in the right-hand console, and click **Approve & Apply Plan**.
+At the end of `./deploy_identity.sh`, copy the two SAML Service Provider URLs printed in the terminal output:
+```text
+SAML SP Entity ID         : https://accounts.google.com/samlrp/<profile_id>
+SAML SP ACS (Reply) URL   : https://accounts.google.com/samlrp/<profile_id>/acs
+```
+
+---
+
+### Step 1.2: Complete the SAML Handshake in `entra.microsoft.com` and `admin.google.com`
+
+1. **In Microsoft Entra Admin Center (`entra.microsoft.com`):**
+   - Return to **Enterprise applications -> `Cymbal Google Cloud & Gemini Enterprise SSO` -> Single sign-on -> SAML -> Section 1 (Basic SAML Configuration)** and click **Edit**:
+     - **Identifier (Entity ID):** Paste `https://accounts.google.com/samlrp/<profile_id>` and check **Default** (remove any generic `google.com` row).
+     - **Reply URL (Assertion Consumer Service URL):** Paste `https://accounts.google.com/samlrp/<profile_id>/acs` and check **Default**.
+     - **Sign on URL:**
+       ```text
+       https://www.google.com/a/cymbal.com/ServiceLogin?continue=https://vertexaisearch.cloud.google.com
+       ```
+     - Click **Save**.
+   - In **Section 2 (Attributes & Claims)**, verify that **Unique User Identifier (Name ID)** is mapped to `user.userprincipalname` (`<user>@cymbal.com`, format `Email address`).
+   - In **Section 3 (SAML Certificates)**, click **Download** next to **Certificate (Base64)** to save `cymbal-entra-sso.cer`.
+
+2. **Upload the Entra Certificate & Assign the SSO Profile in `admin.google.com`:**
+   - **Option 1 (Automated via CLI):** Set `SAML_IDP_CERT_FILE="/path/to/cymbal-entra-sso.cer"` in `configs/cymbal-identity.env` and re-run:
+     ```bash
+     TF_WORKSPACE_OVERRIDE="id-cymbal-com" ./deploy_identity.sh \
+       --config configs/cymbal-identity.env \
+       --curl-only
+     ```
+   - **Option 2 (In `admin.google.com` UI):**
+     1. Go to **[admin.google.com](https://admin.google.com) -> Security -> Authentication -> SSO with third-party IdP**.
+     2. Under **Third-party SSO profiles**, open **`Cymbal Microsoft Entra ID SSO`** and upload `cymbal-entra-sso.cer` under **Verification certificate**, then click **Save**.
+     3. Scroll to **Manage SSO profile assignments** $\rightarrow$ click **Manage** (or **Get started**):
+        - Select Cymbal's root organizational unit (or specific Cymbal OUs / groups).
+        - Select **Anotheragan SSO profile** $\rightarrow$ choose **`Cymbal Microsoft Entra ID SSO`**.
+        - Select **"Have Google prompt for their username, then redirect them to this profile's IDP sign-in page"**.
+        - Click **Save**.
+     4. Under **Domain-specific Service URLs**, set `cymbal.com` to **"Automatically redirect users to the third-party IdP in the following SSO profile"** $\rightarrow$ **`Cymbal Microsoft Entra ID SSO`**.
+
+3. **Optional — Continuous SCIM 2.0 User Auto-Provisioning (Entra ID -> Google Cloud Identity):**
+   - If Cymbal user accounts do not yet exist in Google Cloud Identity, you can either:
+     - **One-Time CSV Upload:** Upload the auto-generated `infra/configs/cloud_identity_users.csv` in **`admin.google.com -> Directory -> Users -> Bulk update users`**, **or**
+     - **Continuous SCIM Provisioning:** In **`entra.microsoft.com -> Enterprise applications -> Cymbal Google Cloud & Gemini Enterprise SSO -> Provisioning`**, set **Provisioning Mode** to **Automatic**, click **Authorize**, sign in as `admin@cymbal.com`, and set **Provisioning Status** to **On**.
 
 ---
 
 ## Phase 2: Shared Microsoft 365 Connectors (`cymbal.sharepoint.com`) — Stack 03
 
-Stack 03 (`infra/stacks/03-m365-connectors` & `infra/deploy_m365.sh`) provisions Cymbal's federated M365 Collections (`cymbal-m365-sp`, `cymbal-m365-od`, `cymbal-m365-ol`, `cymbal-m365-teams`) and enables BAP write actions while enforcing per-user Entra ACLs.
+Stack 03 (`infra/stacks/03-m365-connectors` & `infra/deploy_m365.sh`) provisions Cymbal's federated M365 Collections (`cymbal-m365-sp`, `cymbal-m365-od`, `cymbal-m365-ol`, `cymbal-m365-teams`) with `o365_environment_type = "com"` and enables BAP write actions while enforcing per-user Entra ACLs.
 
 ### Option A: Provision Cymbal M365 Connectors via CLI (`deploy_m365.sh`)
 
@@ -232,7 +389,7 @@ TF_WORKSPACE_OVERRIDE="m365-global-cymbal-m365" ./deploy_m365.sh \
 
 ## Phase 3: Departmental Gemini Enterprise Apps — Stack 02
 
-Each Cymbal business unit gets its own Gemini Enterprise Engine (`02-ge-app-instance`) with **Per-App Terraform Workspace Isolation** (`app-global-<ge_app_id>`), its own Enterprise Knowledge datastore (`<ge_app_id>-enterprise-knowledge-ds-01`), and automatic binding to the shared `cymbal-m365` connectors.
+Each Cymbal business unit gets its own Gemini Enterprise Engine (`02-ge-app-instance`) with **Per-App Terraform Workspace Isolation** (`app-global-<ge_app_id>`), its own Enterprise Knowledge datastore (`<ge_app_id>-enterprise-knowledge-ds-01`), automatic binding to the 9 shared `cymbal-m365` entity datastores, and automatic creation of the least-privilege `geConnectorAuthUser` role on the M365 collections.
 
 We recommend provisioning **4 GE Apps** for Cymbal:
 1. **`cymbal-dev-sandbox-app`**: Isolated Dev/Sandbox GE App where Cymbal prompt engineers author and test new Skills.
@@ -372,7 +529,7 @@ Then in **AppHub -> Provisioning Studio -> Pin Orchestrator (`agents-cli publish
 
 ---
 
-## Phase 6: Running & Verifying the Cymbal AppHub Portal
+## Phase 6: Running, Verifying & Troubleshooting the Cymbal AppHub Portal
 
 ### Step 6.1: Configure & Start the Services for Cymbal
 
@@ -404,7 +561,18 @@ npm run dev -- --host 0.0.0.0 --port 5173
 
 ### Step 6.2: Post-Onboarding Verification Checklist for Cymbal (`cymbal.com`)
 
-- [ ] **Identity & SAML SSO:** Sign in as `alice@cymbal.com` (member of `ge-finance-users@cymbal.com`) and verify SSO redirects to Cymbal's Microsoft Entra ID login and filters the **My GE Apps** catalog to `cymbal-finance-app`.
+- [ ] **Identity & SAML SSO:** Open an Incognito browser window and sign in as `alice@cymbal.com` (member of `ge-finance-users@cymbal.com`). Verify Google immediately redirects to `login.microsoftonline.com` without prompting for a Google password and filters the **My GE Apps** catalog to `cymbal-finance-app`.
+- [ ] **M365 Connector 3-Legged OAuth Popup:** Inside `cymbal-finance-app`, click **Authorize** on **Outlook**, **Microsoft Teams**, **OneDrive**, and **SharePoint**—verify the popup reuses the active `@cymbal.com` Entra session and completes without `403 Forbidden`.
 - [ ] **Per-App Terraform Isolation:** Open **Provisioning Studio**, create a new `cymbal-legal-app`, and verify its workspace is locked to `app-global-cymbal-legal-app` without modifying `cymbal-finance-app`, `cymbal-hr-app`, or `cymbal-service-desk-app`.
 - [ ] **Composite Skill & Sub-Skill Orchestration:** Open **AI Skill Hub**, click **Run via Universal Orchestrator** on **Customer Escalation Resolver**, and verify that `Step 1: m365-outlook-triage` and `Step 2: sharepoint-policy-lookup` execute sequentially via `:streamAssist` under the calling `@cymbal.com` user's identity.
 - [ ] **Pinned Assistant in Gemini Enterprise:** Launch `cymbal-service-desk-app` and confirm **Cymbal Enterprise Skill Orchestrator** is pinned in the left navigation bar (`defaultPinned: true`) alongside **Deep Research** with clickable skill starter prompts.
+
+### Step 6.3: Common Entra ID, `admin.google.com` & M365 Troubleshooting Reference
+
+| Symptom | Root Cause | Resolution |
+| :--- | :--- | :--- |
+| **`POST .../widgetBuildAuthorizationUrl 403 (Forbidden)`** when a Cymbal user clicks **Authorize** on an M365 connector | User's group only has Engine-level IAM and lacks `discoveryengine.locations.buildAuthorizationUrl` or Collection IAM on `collections/cymbal-m365-*` | Handled automatically by `configure_connector_oauth_iam()` in `infra/scripts/configure_ge_app.sh` (`geConnectorAuthUser` custom role + Collection `:setIamPolicy`). Re-run `./deploy.sh --config configs/<app>.env --curl-only`. |
+| **Outlook / OneDrive popup opens `https://login.microsoftonline.Commercial/...`** (`DNS_PROBE_FINISHED_NXDOMAIN`) | `o365_environment_type` was set to `"Commercial"` instead of `"com"` | Handled automatically in `infra/scripts/configure_m365_connectors.sh` and `infra/terraform-m365/m365_connectors.tf` (`o365_environment_type = "com"`). |
+| **Microsoft Teams / Calendar authorization fails after Entra login** | Missing **Delegated** permissions or Admin Consent on `cymbal-ge-m365-connector` | Add all **Delegated** permissions listed in **Step 0A.1** (`Chat.ReadWrite`, `ChannelMessage.Read.All`, `Calendars.ReadWrite`, `offline_access`) and click **Grant admin consent for Cymbal**. |
+| **SAML option is greyed out in Microsoft Entra ID** | Opened the OAuth App Registration instead of an Entra Gallery SAML application | Follow **Step 0A.2**: go to **Enterprise applications -> + New application** and add **Google Cloud / G Suite Connector by Microsoft**. |
+| **Cloud Identity Terraform `Error(2028)` when adding `@cymbal.com` group members** | Target `@cymbal.com` user accounts do not exist in Google Cloud Identity yet | Upload the auto-generated `infra/configs/cloud_identity_users.csv` in **`admin.google.com -> Directory -> Users -> Bulk update users`** or enable SCIM provisioning in **Step 1.2**. |
