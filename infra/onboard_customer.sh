@@ -141,7 +141,7 @@ echo ">>> [Phase 0B] Running Google Admin & Cloud Identity Bootstrap..."
   --entra-tenant-id "${ENTRA_TENANT_ID}" \
   --dns-zone-name "${DNS_ZONE_NAME}" \
   --tf-state-bucket "${TF_STATE_BUCKET}" \
-  "${DRY_RUN_FLAG[@]}"
+  ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
 
 # ------------------------------------------------------------------------------
 # Phase 0A: Microsoft Entra ID Bootstrap (Step 0A.1 OAuth + Step 0A.2 SAML)
@@ -155,7 +155,7 @@ echo ">>> [Phase 0A] Running Microsoft Entra ID OAuth & SAML Gallery Bootstrap..
   --gcp-project-id "${GCP_PROJECT_ID}" \
   --secret-id "${M365_SECRET_ID}" \
   --mode "${ENTRA_MODE}" \
-  "${DRY_RUN_FLAG[@]}"
+  ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
 
 # ------------------------------------------------------------------------------
 # Phase 1: Entra -> Cloud Identity Sync & Bi-Directional SAML Handshake
