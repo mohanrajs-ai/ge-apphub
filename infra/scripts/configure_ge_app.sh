@@ -51,6 +51,7 @@ render_engine_payload() {
     --arg featAgentGallery "${GE_FEATURE_AGENT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
     --arg featAgentSharing "${GE_FEATURE_AGENT_SHARING:-FEATURE_STATE_OFF}" \
+    --arg featAddKnowledgeSources "${GE_FEATURE_ADD_KNOWLEDGE_SOURCES:-FEATURE_STATE_OFF}" \
     --arg featSkills "${GE_FEATURE_SKILLS:-FEATURE_STATE_ON}" \
     --arg featSkillSharing "${GE_FEATURE_SKILL_SHARING:-FEATURE_STATE_ON}" \
     --arg featSkillSharingApproval "${GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL:-FEATURE_STATE_ON}" \
@@ -64,6 +65,9 @@ render_engine_payload() {
     --arg featAudioOverview "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
     --argjson allowAgentSharing "${GE_ALLOW_AGENT_SHARING:-false}" \
     --arg agentSharingPolicy "${GE_AGENT_SHARING_POLICY:-SHARING_POLICY_DISABLED}" \
+    --argjson allowPerAppKnowledge "${GE_ALLOW_PER_APP_KNOWLEDGE_SOURCES:-false}" \
+    --arg sharedGroundingSource "${GE_SHARED_GROUNDING_SOURCE:-GOOGLE_SEARCH_ONLY}" \
+    --arg allowedGroundingSources "${GE_ALLOWED_GROUNDING_SOURCES:-GOOGLE_SEARCH}" \
     --argjson enableSkills "${GE_ENABLE_SKILLS:-true}" \
     --arg skillSharingPolicy "${GE_SKILL_SHARING_APPROVAL_POLICY:-ADMIN_APPROVAL_REQUIRED}" \
     --argjson requireAdminApprovalForSkills "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" \
@@ -94,6 +98,7 @@ render_engine_payload() {
         "agent-gallery": $featAgentGallery,
         "no-code-agent-builder": $featNoCodeBuilder,
         "agent-sharing": $featAgentSharing,
+        "add-knowledge-sources": $featAddKnowledgeSources,
         "skills": $featSkills,
         "skill-sharing": $featSkillSharing,
         "skill-sharing-admin-approval": $featSkillSharingApproval,
@@ -109,6 +114,9 @@ render_engine_payload() {
       sharingConfig: {
         allowAgentSharing: $allowAgentSharing,
         agentSharingPolicy: $agentSharingPolicy,
+        allowPerAppKnowledgeSources: $allowPerAppKnowledge,
+        sharedGroundingSource: $sharedGroundingSource,
+        allowedGroundingSources: [$allowedGroundingSources],
         enableSkills: $enableSkills,
         skillSharingPolicy: $skillSharingPolicy,
         requireAdminApprovalForSkillSharing: $requireAdminApprovalForSkills,
@@ -254,6 +262,8 @@ render_widget_config_payload() {
     --argjson userEventDays "${GE_USER_EVENT_RETENTION_DAYS:-365}" \
     --argjson enablePersonalization "${GE_ENABLE_SEARCH_PERSONALIZATION:-true}" \
     --argjson enableWebGrounding "${GE_ENABLE_WEB_SEARCH_GROUNDING:-true}" \
+    --argjson allowPerAppKnowledge "${GE_ALLOW_PER_APP_KNOWLEDGE_SOURCES:-false}" \
+    --arg sharedGroundingSource "${GE_SHARED_GROUNDING_SOURCE:-GOOGLE_SEARCH_ONLY}" \
     --argjson allowAgentSharing "${GE_ALLOW_AGENT_SHARING:-false}" \
     --argjson enableSkills "${GE_ENABLE_SKILLS:-true}" \
     --arg skillSharingPolicy "${GE_SKILL_SHARING_APPROVAL_POLICY:-ADMIN_APPROVAL_REQUIRED}" \
@@ -283,6 +293,8 @@ render_widget_config_payload() {
         userEventRetentionDays: $userEventDays,
         enableSearchPersonalization: $enablePersonalization,
         enableWebAppGrounding: $enableWebGrounding,
+        allowPerAppKnowledgeSources: $allowPerAppKnowledge,
+        sharedGroundingSource: $sharedGroundingSource,
         allowAgentSharing: $allowAgentSharing,
         enableSkills: $enableSkills,
         skillSharingPolicy: $skillSharingPolicy,
@@ -558,17 +570,21 @@ configure_gemini_enterprise_app() {
   ge_curl_request "PATCH" "${base_v1alpha}/${parent}/aclConfig" "${acl_payload}" >/dev/null
   log_ok "Identity/ACL configuration applied."
 
-  # 2. If running in --curl-only mode (without Terraform), ensure Data Store & Engine exist via curl
+  # 2. If running in --curl-only mode (without Terraform), ensure Data Store (if enabled) & Engine exist via curl
   if [[ "${include_core_resources}" == "true" ]]; then
-    log_info "Running in curl-only mode: Ensuring Data Store '${GE_DATA_STORE_ID}' exists via REST API..."
-    local ds_payload
-    ds_payload="$(render_datastore_payload)"
-    ge_upsert_resource \
-      "${base_v1alpha}/${col_parent}/dataStores/${GE_DATA_STORE_ID}" \
-      "${base_v1alpha}/${col_parent}/dataStores?dataStoreId=${GE_DATA_STORE_ID}" \
-      "${base_v1alpha}/${col_parent}/dataStores/${GE_DATA_STORE_ID}?updateMask=displayName" \
-      "${ds_payload}" >/dev/null
-    log_ok "Data Store '${GE_DATA_STORE_ID}' provisioned via REST API."
+    if [[ -n "${GE_DATA_STORE_ID:-}" ]]; then
+      log_info "Running in curl-only mode: Ensuring Data Store '${GE_DATA_STORE_ID}' exists via REST API..."
+      local ds_payload
+      ds_payload="$(render_datastore_payload)"
+      ge_upsert_resource \
+        "${base_v1alpha}/${col_parent}/dataStores/${GE_DATA_STORE_ID}" \
+        "${base_v1alpha}/${col_parent}/dataStores?dataStoreId=${GE_DATA_STORE_ID}" \
+        "${base_v1alpha}/${col_parent}/dataStores/${GE_DATA_STORE_ID}?updateMask=displayName" \
+        "${ds_payload}" >/dev/null
+      log_ok "Data Store '${GE_DATA_STORE_ID}' provisioned via REST API."
+    else
+      log_info "Skipping per-app Data Store creation (per-app knowledge sources disabled; Google Search + shared connectors only)."
+    fi
 
     log_info "Running in curl-only mode: Ensuring Gemini Enterprise Engine '${GE_APP_ID}' exists via REST API..."
     local eng_payload
