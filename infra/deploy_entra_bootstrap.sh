@@ -154,8 +154,13 @@ if [[ "${MODE}" == "az-graph" ]]; then
   if [[ "${DRY_RUN}" == "true" ]]; then
     echo "[DRY-RUN] Would authenticate to Entra Tenant ${ENTRA_TENANT_ID} via 'az account show'"
     echo "[DRY-RUN] Would create Entra OAuth App '${OAUTH_APP_NAME}' with Redirect URI '${REDIRECT_URI}'"
-    echo "[DRY-RUN] Would attach 20+ Microsoft Graph & SharePoint Application/Delegated permissions"
-    echo "[DRY-RUN] Would grant Tenant-Wide Admin Consent via /oauth2PermissionGrants & /appRoleAssignments"
+    echo "[DRY-RUN] Would attach all 47 Microsoft Graph & SharePoint Application/Delegated permissions across:"
+    echo "          - SharePoint Online (m365-sp: Sites.Read.All, Sites.ReadWrite.All, Sites.Manage.All, AllSites.Read/Write/Manage)"
+    echo "          - OneDrive (m365-od: Files.Read.All, Files.ReadWrite.All, MyFiles.Read/Write)"
+    echo "          - Outlook Mail/Calendar/Contacts (m365-ol: Mail.Read/ReadWrite/Send, Calendars.Read/ReadWrite, Contacts.Read/ReadWrite)"
+    echo "          - Microsoft Teams (m365-teams: Chat.Read/ReadWrite, ChatMessage.Send, ChannelMessage.Read.All/Send, Team/Channel.ReadBasic.All, Channel.Create)"
+    echo "          - Identity Sync (User.Read.All, Group.Read.All, GroupMember.Read.All)"
+    echo "[DRY-RUN] Would grant Tenant-Wide Admin Consent via 'az ad app permission admin-consent'"
     echo "[DRY-RUN] Would push {tenant_id, client_id, client_secret} to GCP Secret Manager '${M365_SECRET_ID}'"
     echo "[DRY-RUN] Would instantiate Gallery SAML App Template '${GOOGLE_CLOUD_GALLERY_TEMPLATE_ID}' (${SAML_APP_NAME})"
     exit 0
@@ -178,11 +183,69 @@ if [[ "${MODE}" == "az-graph" ]]; then
 
   echo "      Created Client ID: ${CLIENT_ID} (Object ID: ${APP_OBJECT_ID})"
 
-  echo "[3/6] Creating Service Principal & granting Tenant-Wide Admin Consent..."
+  echo "[3/6] Resolving & attaching all M365 permissions (SharePoint, OneDrive, Outlook, Teams & Identity Sync)..."
+  MSGRAPH_SP_JSON=$(az ad sp show --id "${MSGRAPH_APP_ID}" --output json)
+  SHAREPOINT_SP_JSON=$(az ad sp show --id "${SHAREPOINT_APP_ID}" --output json)
+
+  REQUIRED_RESOURCE_ACCESS_PAYLOAD=$(python3 - "${MSGRAPH_SP_JSON}" "${SHAREPOINT_SP_JSON}" <<'PYEOF'
+import json
+import sys
+
+msgraph_sp = json.loads(sys.argv[1])
+sp_online = json.loads(sys.argv[2])
+
+msgraph_roles = {r["value"]: r["id"] for r in msgraph_sp.get("appRoles", []) if r.get("value")}
+msgraph_scopes = {s["value"]: s["id"] for s in msgraph_sp.get("oauth2PermissionScopes", []) if s.get("value")}
+
+sp_roles = {r["value"]: r["id"] for r in sp_online.get("appRoles", []) if r.get("value")}
+sp_scopes = {s["value"]: s["id"] for s in sp_online.get("oauth2PermissionScopes", []) if s.get("value")}
+
+wanted_msgraph_roles = [
+    "User.Read.All", "Group.Read.All", "GroupMember.Read.All",
+    "Sites.Read.All", "Files.Read.All",
+    "Mail.Read", "Calendars.Read", "Contacts.Read",
+    "Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All", "Chat.Read.All",
+]
+wanted_msgraph_scopes = [
+    "openid", "profile", "email", "offline_access", "User.Read", "People.Read",
+    "Files.Read.All", "Files.ReadWrite.All", "Sites.Read.All", "Sites.ReadWrite.All", "Sites.Manage.All",
+    "Mail.Read", "Mail.ReadWrite", "Mail.ReadWrite.Shared", "Mail.Send", "Mail.Send.Shared",
+    "Calendars.Read", "Calendars.ReadWrite", "Calendars.Read.Shared",
+    "Contacts.Read", "Contacts.ReadWrite", "Contacts.ReadWrite.Shared", "MailboxSettings.Read",
+    "Chat.Read", "Chat.ReadWrite", "ChatMessage.Send", "ChannelMessage.Read.All",
+    "ChannelMessage.Send", "Team.ReadBasic.All", "Channel.ReadBasic.All", "Channel.Create",
+]
+wanted_sp_roles = ["Sites.Read.All"]
+wanted_sp_scopes = ["AllSites.Read", "AllSites.Write", "AllSites.Manage", "MyFiles.Read", "MyFiles.Write"]
+
+msgraph_access = (
+    [{"id": msgraph_roles[r], "type": "Role"} for r in wanted_msgraph_roles if r in msgraph_roles]
+    + [{"id": msgraph_scopes[s], "type": "Scope"} for s in wanted_msgraph_scopes if s in msgraph_scopes]
+)
+sp_access = (
+    [{"id": sp_roles[r], "type": "Role"} for r in wanted_sp_roles if r in sp_roles]
+    + [{"id": sp_scopes[s], "type": "Scope"} for s in wanted_sp_scopes if s in sp_scopes]
+)
+
+print(json.dumps({
+    "requiredResourceAccess": [
+        {"resourceAppId": "00000003-0000-0000-c000-000000000000", "resourceAccess": msgraph_access},
+        {"resourceAppId": "00000003-0000-0ff1-ce00-000000000000", "resourceAccess": sp_access},
+    ]
+}))
+PYEOF
+  )
+
+  az rest \
+    --method PATCH \
+    --uri "https://graph.microsoft.com/v1.0/applications/${APP_OBJECT_ID}" \
+    --headers "Content-Type=application/json" \
+    --body "${REQUIRED_RESOURCE_ACCESS_PAYLOAD}"
+
   SP_JSON=$(az ad sp create --id "${CLIENT_ID}" --output json)
   SP_OBJECT_ID=$(echo "${SP_JSON}" | python3 -c "import sys, json; print(json.load(sys.stdin)['id'])")
 
-  # Grant Admin Consent via Azure CLI
+  echo "      Granting Tenant-Wide Admin Consent for all 4 M365 applications..."
   az ad app permission admin-consent --id "${CLIENT_ID}" || true
 
   echo "[4/6] Generating 24-month Client Secret..."

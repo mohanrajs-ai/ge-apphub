@@ -170,29 +170,28 @@ If Cymbal's identity team requires manual UI execution instead of Option A/B, fo
    - Click **Add** and immediately copy the secret **Value** (not the Secret ID) $\rightarrow$ `M365_CLIENT_SECRET`.
 4. Navigate to **API permissions -> + Add a permission** and add the following **Application** and **Delegated** permissions:
 
-   ##### 1. Microsoft Graph — Application Permissions *(for Entra Group Sync & Connector Ingestion)*
+   ##### 1. Microsoft Graph — Application Permissions (`12 Roles` — *for Entra Group Sync & Connector Ingestion across all 4 M365 Apps*)
+   | M365 Application | Permission (`Role`) | Purpose |
+   | :--- | :--- | :--- |
+   | **Entra -> Cloud Identity Sync** | `User.Read.All`, `Group.Read.All`, `GroupMember.Read.All` | Read `@cymbal.com` users, `ge-*@cymbal.com` groups & transitive memberships |
+   | **SharePoint Online (`m365-sp`) & OneDrive (`m365-od`)** | `Sites.Read.All`, `Files.Read.All` | SharePoint site metadata & OneDrive/SharePoint file ACL indexing |
+   | **Outlook (`m365-ol`)** | `Mail.Read`, `Calendars.Read`, `Contacts.Read` | Exchange Online Mail, Calendar & Contact ingestion metadata |
+   | **Microsoft Teams (`m365-teams`)** | `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `ChannelMessage.Read.All`, `Chat.Read.All` | Teams, Channel & Chat metadata indexing |
+
+   ##### 2. Microsoft Graph — Delegated Permissions (`29 Scopes` — *for End-User 3-Legged OAuth, Federated Search & 46 Write Actions across all 4 M365 Apps*)
+   | M365 Application | Delegated Permissions (`Scope`) | Supported Entities & Write Actions |
+   | :--- | :--- | :--- |
+   | **OpenID & Core Profile** | `openid`, `profile`, `email`, `offline_access`, `User.Read`, `People.Read` | OIDC Sign-In, Refresh Tokens & User Context |
+   | **SharePoint Online (`m365-sp`) & OneDrive (`m365-od`)** | `Files.Read.All`, `Files.ReadWrite.All`, `Sites.Read.All`, `Sites.ReadWrite.All`, `Sites.Manage.All` | **Entities:** `file`, `page`<br/>**18 SharePoint Actions:** `create_folder`, `add_page`, `upload_document`, `add_list`, `list_lists`, `get_list_item`, `get_list_fields`, `check_in_document`, `check_out_document`, `discard_check_out_document`, `move_attachment_or_document`, `rename_attachment_or_document`, `update_file_properties`, `create_list_item`, `update_list_item`, `update_list`, `update_page`, `share_resource`<br/>**10 OneDrive Actions:** `upload_file`, `copy_file`, `copy_folder`, `move_file`, `move_folder`, `create_folder`, `rename_file`, `rename_folder`, `share_file_folder`, `update_file_properties` |
+   | **Outlook Mail, Calendar & Contacts (`m365-ol`)** | `Mail.Read`, `Mail.ReadWrite`, `Mail.ReadWrite.Shared`, `Mail.Send`, `Mail.Send.Shared`, `Calendars.Read`, `Calendars.ReadWrite`, `Calendars.Read.Shared`, `Contacts.Read`, `Contacts.ReadWrite`, `Contacts.ReadWrite.Shared`, `MailboxSettings.Read` | **Entities:** `mail`, `mail-attachment`, `calendar`, `contact`<br/>**15 Outlook Actions:** `send_mail`, `create_message`, `update_message`, `reply_to_my_message`, `forward_mail`, `move_mail`, `add_attachments`, `download_attachments`, `create_event`, `update_event`, `rsvp_to_event`, `create_calendar`, `update_calendar`, `create_contact`, `update_contact` |
+   | **Microsoft Teams (`m365-teams`)** | `Chat.Read`, `Chat.ReadWrite`, `ChatMessage.Send`, `ChannelMessage.Read.All`, `ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Channel.Create` | **Entities:** `channel-message`, `chat-message`<br/>**3 Teams Actions:** `send_channel_message`, `send_chat_message`, `create_channel` |
+
+   ##### 3. SharePoint (`Office 365 SharePoint Online`) — Application & Delegated Permissions (`6 Permissions` — *for Federated Search & Lists/Pages*)
    | Permission | Type | Purpose |
    | :--- | :--- | :--- |
-   | `User.Read.All` | Application | Read `@cymbal.com` user profiles for 1:1 Cloud Identity sync |
-   | `Group.Read.All` | Application | Read `ge-*@cymbal.com` security groups |
-   | `GroupMember.Read.All` | Application | Read transitive group memberships |
-   | `Sites.Read.All` | Application | SharePoint Online connector metadata |
-   | `Files.Read.All` | Application | OneDrive & SharePoint file ACL indexing |
-   | `Mail.Read` | Application | Exchange Online / Outlook connector metadata |
-
-   ##### 2. Microsoft Graph — Delegated Permissions *(for End-User 3-Legged OAuth & Actions)*
-   | Category | Delegated Permissions to Add |
-   | :--- | :--- |
-   | **OpenID & Profile** | `openid`, `profile`, `offline_access`, `User.Read` |
-   | **Outlook Mail, Calendar & Contacts** | `Mail.ReadWrite`, `Mail.ReadWrite.Shared`, `Mail.Send`, `Mail.Send.Shared`, `Calendars.ReadWrite`, `Contacts.ReadWrite` |
-   | **OneDrive & SharePoint Files** | `Files.ReadWrite.All`, `Sites.ReadWrite.All` |
-   | **Microsoft Teams** | `Chat.Read`, `Chat.ReadWrite`, `ChannelMessage.Read.All`, `ChannelMessage.Send`, `Team.ReadBasic.All`, `Channel.ReadBasic.All`, `Channel.Create` |
-
-   ##### 3. SharePoint (`Office 365 SharePoint Online`) — Delegated Permissions *(for Federated Search)*
-   | Permission | Type | Purpose |
-   | :--- | :--- | :--- |
-   | `AllSites.Read` (or `AllSites.Write`) | Delegated | Federated search & write actions across `https://cymbal.sharepoint.com` |
-   | `MyFiles.Read` | Delegated | Federated search across `https://cymbal-my.sharepoint.com` |
+   | `Sites.Read.All` | Application (`Role`) | Background site collection discovery across `https://cymbal.sharepoint.com` |
+   | `AllSites.Read`, `AllSites.Write`, `AllSites.Manage` | Delegated (`Scope`) | Federated search & list/page write actions across `https://cymbal.sharepoint.com` |
+   | `MyFiles.Read`, `MyFiles.Write` | Delegated (`Scope`) | Federated search & file write actions across `https://cymbal-my.sharepoint.com` |
 
 5. Click **"Grant admin consent for Cymbal"** at the top of the **API permissions** table and click **Yes** until every permission row shows a green **"Granted for Cymbal"** badge.
 

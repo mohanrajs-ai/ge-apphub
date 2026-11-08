@@ -75,32 +75,67 @@ data "azuread_service_principal" "sharepoint" {
 }
 
 locals {
-  # Microsoft Graph Application Permissions (App Roles)
+  # ============================================================================
+  # Complete Permission Matrix for All 4 M365 Applications + Identity Sync:
+  #   1. SharePoint Online (m365-sp) — Federated Search, Ingestion & 18 Actions
+  #   2. OneDrive (m365-od)          — Federated Search, Ingestion & 10 Actions
+  #   3. Outlook (m365-ol)           — Mail, Attachment, Calendar, Contact & 15 Actions
+  #   4. Microsoft Teams (m365-teams)— Channel/Chat Search & 3 Write Actions
+  #   5. Entra -> Cloud Identity Sync— Users, Groups & Transitive Memberships
+  # ============================================================================
+
+  # 1. Microsoft Graph — Application Permissions (App Roles)
   msgraph_app_roles = [
+    # Identity & Group Sync (Entra ID -> Cloud Identity)
     "User.Read.All",
     "Group.Read.All",
     "GroupMember.Read.All",
+    # SharePoint Online & OneDrive (Ingestion & ACL Indexing)
     "Sites.Read.All",
     "Files.Read.All",
+    # Outlook Mail, Calendar & Contacts (Ingestion & Metadata)
     "Mail.Read",
+    "Calendars.Read",
+    "Contacts.Read",
+    # Microsoft Teams (Channels, Chats & Team Metadata)
+    "Team.ReadBasic.All",
+    "Channel.ReadBasic.All",
+    "ChannelMessage.Read.All",
+    "Chat.Read.All",
   ]
 
-  # Microsoft Graph Delegated Permissions (OAuth2 Permission Scopes)
+  # 2. Microsoft Graph — Delegated Permissions (3-Legged End-User OAuth + BAP Actions)
   msgraph_delegated_scopes = [
+    # OpenID Connect & Core User Profile
     "openid",
     "profile",
+    "email",
     "offline_access",
     "User.Read",
+    "People.Read",
+    # SharePoint Online & OneDrive (Search + 18 SharePoint Actions & 10 OneDrive Actions)
+    "Files.Read.All",
+    "Files.ReadWrite.All",
+    "Sites.Read.All",
+    "Sites.ReadWrite.All",
+    "Sites.Manage.All",
+    # Outlook Mail, Calendar & Contacts (Search + 15 Mail/Calendar/Contact Actions)
+    "Mail.Read",
     "Mail.ReadWrite",
     "Mail.ReadWrite.Shared",
     "Mail.Send",
     "Mail.Send.Shared",
+    "Calendars.Read",
     "Calendars.ReadWrite",
+    "Calendars.Read.Shared",
+    "Contacts.Read",
     "Contacts.ReadWrite",
-    "Files.ReadWrite.All",
-    "Sites.ReadWrite.All",
+    "Contacts.ReadWrite.Shared",
+    "MailboxSettings.Read",
+    # Microsoft Teams (Channel/Chat Federated Search + send_channel_message, send_chat_message, create_channel)
     "Chat.Read",
     "Chat.ReadWrite",
+    "ChatMessage.Send",
     "ChannelMessage.Read.All",
     "ChannelMessage.Send",
     "Team.ReadBasic.All",
@@ -108,10 +143,18 @@ locals {
     "Channel.Create",
   ]
 
-  # SharePoint Online Delegated Permissions
+  # 3. Office 365 SharePoint Online — Application Permissions (App Roles)
+  sharepoint_app_roles = [
+    "Sites.Read.All",
+  ]
+
+  # 4. Office 365 SharePoint Online — Delegated Permissions (Federated Search & Lists/Pages Actions)
   sharepoint_delegated_scopes = [
+    "AllSites.Read",
     "AllSites.Write",
+    "AllSites.Manage",
     "MyFiles.Read",
+    "MyFiles.Write",
   ]
 }
 
@@ -150,6 +193,14 @@ resource "azuread_application" "m365_connector" {
     resource_app_id = data.azuread_service_principal.sharepoint.client_id
 
     dynamic "resource_access" {
+      for_each = local.sharepoint_app_roles
+      content {
+        id   = data.azuread_service_principal.sharepoint.app_role_ids[resource_access.value]
+        type = "Role"
+      }
+    }
+
+    dynamic "resource_access" {
       for_each = local.sharepoint_delegated_scopes
       content {
         id   = data.azuread_service_principal.sharepoint.oauth2_permission_scope_ids[resource_access.value]
@@ -175,6 +226,13 @@ resource "azuread_app_role_assignment" "msgraph_admin_consent" {
   app_role_id         = data.azuread_service_principal.msgraph.app_role_ids[each.value]
   principal_object_id = azuread_service_principal.m365_connector.object_id
   resource_object_id  = data.azuread_service_principal.msgraph.object_id
+}
+
+resource "azuread_app_role_assignment" "sharepoint_admin_consent" {
+  for_each            = toset(local.sharepoint_app_roles)
+  app_role_id         = data.azuread_service_principal.sharepoint.app_role_ids[each.value]
+  principal_object_id = azuread_service_principal.m365_connector.object_id
+  resource_object_id  = data.azuread_service_principal.sharepoint.object_id
 }
 
 resource "azuread_service_principal_delegated_permission_grant" "msgraph_delegated_consent" {
