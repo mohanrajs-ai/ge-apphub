@@ -388,7 +388,7 @@ configure_m365_connectors() {
   local loc_parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}"
 
   if [[ "${M365_CONFIGURE_ACL:-true}" == "true" ]]; then
-    log_info "Configuring Discovery Engine ACL settings (${GE_IDENTITY_PROVIDER_TYPE:-THIRD_PARTY}) for M365..."
+    log_info "Configuring Discovery Engine ACL settings (${GE_IDENTITY_PROVIDER_TYPE:-GSUITE}) for M365..."
     local acl_payload
     acl_payload="$(render_acl_payload)"
     ge_curl_request "PATCH" "${base_v1alpha}/${loc_parent}/aclConfig" "${acl_payload}" >/dev/null
