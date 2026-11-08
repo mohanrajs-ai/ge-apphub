@@ -26,6 +26,10 @@ verify_gemini_enterprise_resources() {
   ge_curl_request "GET" "${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}:getIamPolicy" >/dev/null
   log_ok "Engine '${GE_APP_ID}' IAM policy verified for exclusive group '${GE_APP_ACCESS_GROUP:-}'."
 
+  log_info "Verifying Cloud NotebookLM API readiness on 'projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}'..."
+  ge_curl_request "GET" "${base_v1alpha}/projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/notebooks:listRecentlyViewed" "" "true" >/dev/null || true
+  log_ok "Cloud NotebookLM API endpoint verified."
+
   if [[ "${ENABLE_AGENT_REGISTRATION:-false}" == "true" ]]; then
     local agent_id="${AGENT_ID:-ops-automation-agent}"
     log_info "Verifying Registered Agent '${agent_id}'..."

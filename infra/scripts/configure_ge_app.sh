@@ -542,64 +542,65 @@ configure_connector_oauth_iam() {
 
   local existing_role_rc=0
   ge_curl_request "GET" "https://iam.googleapis.com/v1/${full_role}" "" "true" >/dev/null || existing_role_rc=$?
+  local role_body
+  role_body="$(jq -n '{
+    title: "Gemini Enterprise Connector OAuth & NotebookLM User",
+    description: "Least-privilege location, dataConnector OAuth, and NotebookLM permissions without granting cross-app Engine access.",
+    stage: "GA",
+    includedPermissions: [
+      "discoveryengine.accounts.create",
+      "discoveryengine.audioOverviews.create",
+      "discoveryengine.audioOverviews.delete",
+      "discoveryengine.audioOverviews.get",
+      "discoveryengine.audioOverviews.getIceConfig",
+      "discoveryengine.audioOverviews.sendSdpOffer",
+      "discoveryengine.authorizations.storeUserAuthorization",
+      "discoveryengine.collections.get",
+      "discoveryengine.dataConnectors.acquireAccessToken",
+      "discoveryengine.dataConnectors.acquireAndStoreRefreshToken",
+      "discoveryengine.dataConnectors.buildActionInvocation",
+      "discoveryengine.dataConnectors.checkRefreshToken",
+      "discoveryengine.dataConnectors.executeAction",
+      "discoveryengine.dataConnectors.queryAvailableActions",
+      "discoveryengine.dataStores.get",
+      "discoveryengine.locations.buildAuthorizationUrl",
+      "discoveryengine.locations.completeExternalIdentities",
+      "discoveryengine.locations.fetchAgentCards",
+      "discoveryengine.locations.getConnectorSource",
+      "discoveryengine.locations.listConnectorSources",
+      "discoveryengine.notebooks.create",
+      "discoveryengine.notebooks.generateGuide",
+      "discoveryengine.notebooks.get",
+      "discoveryengine.notebooks.getAnalytics",
+      "discoveryengine.notebooks.getIamPolicy",
+      "discoveryengine.notebooks.interactSources",
+      "discoveryengine.notebooks.list",
+      "discoveryengine.notebooks.removeSelf",
+      "discoveryengine.notebooks.setIamPolicy",
+      "discoveryengine.notebooks.update",
+      "discoveryengine.notes.create",
+      "discoveryengine.notes.delete",
+      "discoveryengine.notes.get",
+      "discoveryengine.notes.update",
+      "discoveryengine.podcasts.create",
+      "discoveryengine.sources.checkFreshness",
+      "discoveryengine.sources.create",
+      "discoveryengine.sources.delete",
+      "discoveryengine.sources.generateDocumentGuide",
+      "discoveryengine.sources.get",
+      "discoveryengine.sources.refresh",
+      "discoveryengine.sources.update",
+      "discoveryengine.users.get",
+      "discoveryengine.users.update",
+      "resourcemanager.projects.get"
+    ]
+  }')"
   if [[ "${existing_role_rc}" -eq 44 ]]; then
     local role_payload
-    role_payload="$(jq -n --arg roleId "${role_id}" '{
-      roleId: $roleId,
-      role: {
-        title: "Gemini Enterprise Connector OAuth & NotebookLM User",
-        description: "Least-privilege location, dataConnector OAuth, and NotebookLM permissions without granting cross-app Engine access.",
-        stage: "GA",
-        includedPermissions: [
-          "discoveryengine.accounts.create",
-          "discoveryengine.audioOverviews.create",
-          "discoveryengine.audioOverviews.delete",
-          "discoveryengine.audioOverviews.get",
-          "discoveryengine.audioOverviews.getIceConfig",
-          "discoveryengine.audioOverviews.sendSdpOffer",
-          "discoveryengine.authorizations.storeUserAuthorization",
-          "discoveryengine.collections.get",
-          "discoveryengine.dataConnectors.acquireAccessToken",
-          "discoveryengine.dataConnectors.acquireAndStoreRefreshToken",
-          "discoveryengine.dataConnectors.buildActionInvocation",
-          "discoveryengine.dataConnectors.checkRefreshToken",
-          "discoveryengine.dataConnectors.executeAction",
-          "discoveryengine.dataConnectors.queryAvailableActions",
-          "discoveryengine.dataStores.get",
-          "discoveryengine.locations.buildAuthorizationUrl",
-          "discoveryengine.locations.completeExternalIdentities",
-          "discoveryengine.locations.fetchAgentCards",
-          "discoveryengine.locations.getConnectorSource",
-          "discoveryengine.locations.listConnectorSources",
-          "discoveryengine.notebooks.create",
-          "discoveryengine.notebooks.generateGuide",
-          "discoveryengine.notebooks.get",
-          "discoveryengine.notebooks.getAnalytics",
-          "discoveryengine.notebooks.getIamPolicy",
-          "discoveryengine.notebooks.interactSources",
-          "discoveryengine.notebooks.list",
-          "discoveryengine.notebooks.removeSelf",
-          "discoveryengine.notebooks.setIamPolicy",
-          "discoveryengine.notebooks.update",
-          "discoveryengine.notes.create",
-          "discoveryengine.notes.delete",
-          "discoveryengine.notes.get",
-          "discoveryengine.notes.update",
-          "discoveryengine.podcasts.create",
-          "discoveryengine.sources.checkFreshness",
-          "discoveryengine.sources.create",
-          "discoveryengine.sources.delete",
-          "discoveryengine.sources.generateDocumentGuide",
-          "discoveryengine.sources.get",
-          "discoveryengine.sources.refresh",
-          "discoveryengine.sources.update",
-          "discoveryengine.users.get",
-          "discoveryengine.users.update",
-          "resourcemanager.projects.get"
-        ]
-      }
-    }')"
+    role_payload="$(jq -n --arg roleId "${role_id}" --argjson role "${role_body}" '{roleId: $roleId, role: $role}')"
     ge_curl_request "POST" "https://iam.googleapis.com/v1/projects/${GCP_PROJECT_ID}/roles" "${role_payload}" "true" >/dev/null || true
+  else
+    ge_curl_request "PATCH" "https://iam.googleapis.com/v1/${full_role}?updateMask=title,description,includedPermissions" "${role_body}" "true" >/dev/null || true
   fi
 
   # Bind group_member to geConnectorAuthUser, notebookLmUser, and notebookOwner on project
@@ -775,6 +776,31 @@ ensure_project_license_config() {
   fi
 }
 
+ensure_notebooklm_initialized() {
+  local base_v1alpha
+  base_v1alpha="$(ge_api_base_url "${GE_LOCATION}" "v1alpha")"
+  local parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}"
+
+  log_info "Ensuring Cloud NotebookLM tenant storage is initialized in '${GCP_PROJECT_ID}'..."
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    ge_curl_request "GET" "${base_v1alpha}/${parent}/notebooks:listRecentlyViewed" "" "true" >/dev/null
+    return 0
+  fi
+
+  local nb_list nb_count
+  nb_list="$(ge_curl_request "GET" "${base_v1alpha}/${parent}/notebooks:listRecentlyViewed" "" "true" || echo '{}')"
+  nb_count="$(jq -r '(.notebooks // []) | length' <<<"${nb_list}" 2>/dev/null || echo "0")"
+  if [[ "${nb_count}" -eq 0 ]]; then
+    log_info "Warming up NotebookLM tenant storage for '${GCP_PROJECT_ID}' via initial validation notebook..."
+    local nb_payload
+    nb_payload="$(jq -n --arg title "${GE_COMPANY_NAME:-Enterprise} NotebookLM Workspace" '{title: $title}')"
+    ge_curl_request "POST" "${base_v1alpha}/${parent}/notebooks" "${nb_payload}" "true" >/dev/null || true
+    log_ok "Cloud NotebookLM tenant storage initialized in '${GCP_PROJECT_ID}'."
+  else
+    log_ok "Cloud NotebookLM tenant storage already active in '${GCP_PROJECT_ID}' (${nb_count} notebook(s))."
+  fi
+}
+
 configure_gemini_enterprise_app() {
   local include_core_resources="${1:-false}"
   log_phase "CURL/API" "Configuring Gemini Enterprise App, ACLs, and Assistant via REST API"
@@ -791,8 +817,9 @@ configure_gemini_enterprise_app() {
   ge_curl_request "PATCH" "${base_v1alpha}/${parent}/aclConfig" "${acl_payload}" >/dev/null
   log_ok "Identity/ACL configuration applied."
 
-  # 1b. Ensure Project-Level Gemini Enterprise LicenseConfig & UserStore Auto-Registration
+  # 1b. Ensure Project-Level Gemini Enterprise LicenseConfig, UserStore Auto-Registration & NotebookLM Tenant Warm-Up
   ensure_project_license_config
+  ensure_notebooklm_initialized
 
   # 2. If running in --curl-only mode (without Terraform), ensure Data Store (if enabled) & Engine exist via curl
   if [[ "${include_core_resources}" == "true" ]]; then
