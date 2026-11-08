@@ -80,6 +80,50 @@ sequenceDiagram
 | **OneDrive URI** | `https://cymbal-my.sharepoint.com` |
 | **Departmental GE Apps** | `cymbal-dev-sandbox-app`, `cymbal-service-desk-app`, `cymbal-finance-app`, `cymbal-hr-app` |
 
+### End-to-End Automation Status Matrix (`100% Automated`)
+
+| Phase / Step | Scope | Automation Script / Terraform Stack | Status |
+| :--- | :--- | :--- | :--- |
+| **Master Orchestrator** | Chains all phases (`0C -> 0B -> 0A -> 1 -> 2 -> 3 -> 4`) in one command | [`infra/onboard_customer.sh`](../infra/onboard_customer.sh) | **100% Automated** |
+| **Phase 0A — Step 0A.1** | Entra OAuth App (`cymbal-ge-m365-connector`), **47 M365 Graph & SharePoint Permissions**, Tenant-Wide Admin Consent & GCP Secret Manager sync | [`infra/deploy_entra_bootstrap.sh`](../infra/deploy_entra_bootstrap.sh) + [`infra/stacks/00-entra-bootstrap/main.tf`](../infra/stacks/00-entra-bootstrap/main.tf) | **100% Automated** |
+| **Phase 0A — Step 0A.2** | Entra SAML 2.0 Gallery App (`8b1025e4-1dd2-430b-a150-2ef79cd700f5`), 5 Department Security Groups creation/assignment, SAML Entity ID & ACS URL patching & X.509 Cert upload to Cloud Identity | [`infra/deploy_entra_bootstrap.sh`](../infra/deploy_entra_bootstrap.sh) + [`infra/modules/entra-bootstrap/main.tf`](../infra/modules/entra-bootstrap/main.tf) | **100% Automated** |
+| **Phase 0B — Step 0B.1 & 0B.2** | Auto-discover `CLOUD_IDENTITY_CUSTOMER_ID`, `GCP_ORG_ID`, Root Org Unit, Domain Registration & DNS TXT Verification (`siteVerification` API + Cloud DNS), Inbound SAML SSO Profile & Root OU assignment | [`infra/deploy_google_admin_bootstrap.sh`](../infra/deploy_google_admin_bootstrap.sh) | **100% Automated** |
+| **Phase 0C** | Enable 13 GCP APIs & create versioned remote Terraform state bucket (`gs://cymbal-ge-tfstate`) | [`infra/onboard_customer.sh`](../infra/onboard_customer.sh) | **100% Automated** |
+| **Phase 1 — Step 1.1 & 1.2** | Entra -> Cloud Identity 1:1 Group & Transitive Member Sync, Per-App Group Nesting & SAML SSO Verification | [`infra/deploy_identity.sh`](../infra/deploy_identity.sh) + [`infra/stacks/01-identity-foundation/main.tf`](../infra/stacks/01-identity-foundation/main.tf) | **100% Automated** |
+| **Phase 2** | Shared M365 Connectors (`cymbal-m365-sp`, `cymbal-m365-od`, `cymbal-m365-ol`, `cymbal-m365-teams`) in `FEDERATED` + `ACTIONS` mode | [`infra/deploy_m365.sh`](../infra/deploy_m365.sh) + [`infra/stacks/03-m365-connectors/main.tf`](../infra/stacks/03-m365-connectors/main.tf) | **100% Automated** |
+| **Phase 3** | Departmental GE Apps (`cymbal-dev-sandbox-app`, `cymbal-service-desk-app`, `cymbal-finance-app`, `cymbal-hr-app`) with isolated workspaces (`app-global-<id>`) & `geConnectorAuthUser` IAM | [`infra/deploy.sh`](../infra/deploy.sh) + [`infra/stacks/02-ge-app-instance/main.tf`](../infra/stacks/02-ge-app-instance/main.tf) | **100% Automated** |
+| **Phase 4 & 5** | Universal ADK Skill Orchestrator evaluation, Vertex AI Agent Runtime deploy, OAuth passthrough, `defaultPinned: true`, Sub-Skill catalog seed & 6-stage governance | `agents-cli` + [`backend/app/services/ge_agent_publisher.py`](../backend/app/services/ge_agent_publisher.py) | **100% Automated** |
+
+### Quickstart: 1-Command Master Customer Onboarding (`infra/onboard_customer.sh`)
+
+To execute the entire Cymbal onboarding pipeline (`Phase 0C -> Phase 0B -> Phase 0A -> Phase 1 -> Phase 2 -> Phase 3 -> Phase 4`) in a single command:
+
+```bash
+cd /Users/mohanrajs/aops/geapphub/infra
+
+# 1. Authenticate to Entra ID (cymbal.com) and Google Cloud (admin@cymbal.com)
+az login --tenant "cymbal.com"
+gcloud auth login admin@cymbal.com
+gcloud auth application-default login
+
+# 2. Preview all 7 phases in Dry-Run Mode
+./onboard_customer.sh \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
+  --dns-zone-name "cymbal-com-zone" \
+  --dry-run
+
+# 3. Execute Full End-to-End Cymbal Onboarding
+./onboard_customer.sh \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
+  --dns-zone-name "cymbal-com-zone"
+```
+
 ---
 
 ## Phase 0A: Microsoft Entra ID Configuration (`00-entra-bootstrap` or `entra.microsoft.com`)
