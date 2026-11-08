@@ -1,0 +1,50 @@
+{
+  "displayName": "${GE_APP_DISPLAY_NAME}",
+  "solutionType": "${GE_SOLUTION_TYPE}",
+  "appType": "${GE_APP_TYPE}",
+  "industryVertical": "${GE_INDUSTRY_VERTICAL}",
+  "dataStoreIds": [
+    "${GE_DATA_STORE_ID}"
+  ],
+  "commonConfig": {
+    "companyName": "${GE_COMPANY_NAME}"
+  },
+  "searchEngineConfig": {
+    "searchTier": "${GE_SEARCH_TIER}",
+    "searchAddOns": [
+      "SEARCH_ADD_ON_LLM"
+    ]
+  },
+  "features": {
+    "agent-gallery": "${GE_FEATURE_AGENT_GALLERY}",
+    "no-code-agent-builder": "${GE_FEATURE_NO_CODE_AGENT_BUILDER}",
+    "prompt-gallery": "${GE_FEATURE_PROMPT_GALLERY}",
+    "model-selector": "${GE_FEATURE_MODEL_SELECTOR}",
+    "notebook-lm": "${GE_FEATURE_NOTEBOOK_LM}",
+    "deep-research": "${GE_FEATURE_DEEP_RESEARCH}",
+    "people-search": "${GE_FEATURE_PEOPLE_SEARCH}",
+    "actions": "${GE_FEATURE_ACTIONS}",
+    "audio-overview": "${GE_FEATURE_AUDIO_OVERVIEW}"
+  },
+  "knowledgeGraphConfig": {
+    "enablePrivateKnowledgeGraph": ${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH},
+    "enableKnowledgeCatalog": ${GE_ENABLE_KNOWLEDGE_CATALOG},
+    "taxonomyId": "${GE_KNOWLEDGE_CATALOG_TAXONOMY}"
+  },
+  "chatHistoryConfig": {
+    "retentionDays": ${GE_CHAT_HISTORY_RETENTION_DAYS}
+  },
+  "modelArmorConfig": {
+    "enableModelArmor": ${GE_ENABLE_MODEL_ARMOR},
+    "promptTemplateName": "${GE_MODEL_ARMOR_PROMPT_TEMPLATE}",
+    "responseTemplateName": "${GE_MODEL_ARMOR_RESPONSE_TEMPLATE}",
+    "failureMode": "${GE_MODEL_ARMOR_FAILURE_MODE}"
+  },
+  "observabilityConfig": {
+    "enableObservability": ${GE_ENABLE_OBSERVABILITY},
+    "enableAuditLogging": ${GE_OBSERVABILITY_AUDIT_LOGGING},
+    "enableQueryResponseLogging": ${GE_OBSERVABILITY_QUERY_RESPONSE_LOGGING},
+    "enableLatencyMetrics": ${GE_OBSERVABILITY_LATENCY_METRICS},
+    "bigqueryExportDataset": "${GE_OBSERVABILITY_BQ_DATASET}"
+  }
+}

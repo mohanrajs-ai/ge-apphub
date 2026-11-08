@@ -1,0 +1,18 @@
+{
+  "displayName": "${GE_ASSISTANT_ID}",
+  "generationConfig": {
+    "systemInstruction": {
+      "additionalSystemInstruction": "${GE_ASSISTANT_SYSTEM_INSTRUCTION}"
+    }
+  },
+  "enableWebGrounding": ${GE_ENABLE_WEB_SEARCH_GROUNDING},
+  "webGroundingType": "${GE_WEB_GROUNDING_TYPE}",
+  "sessionTtl": "${GE_CHAT_SESSION_TTL_SECONDS}",
+  "chatHistoryRetentionDays": ${GE_CHAT_HISTORY_RETENTION_DAYS},
+  "modelArmorConfig": {
+    "enableModelArmor": ${GE_ENABLE_MODEL_ARMOR},
+    "promptTemplateName": "${GE_MODEL_ARMOR_PROMPT_TEMPLATE}",
+    "responseTemplateName": "${GE_MODEL_ARMOR_RESPONSE_TEMPLATE}",
+    "failureMode": "${GE_MODEL_ARMOR_FAILURE_MODE}"
+  }
+}

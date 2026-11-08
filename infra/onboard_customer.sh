@@ -209,10 +209,10 @@ EOF
 fi
 
 # ------------------------------------------------------------------------------
-# Phase 3: Departmental Gemini Enterprise Apps (Dev, Service Desk, Finance, HR)
+# Phase 3: Departmental Gemini Enterprise Apps (16-Point Master Template)
 # ------------------------------------------------------------------------------
 echo ""
-echo ">>> [Phase 3] Running Stack 02: Departmental Gemini Enterprise Apps..."
+echo ">>> [Phase 3] Running Stack 02: Departmental Gemini Enterprise Apps (create_app_from_template.sh)..."
 for SPEC in \
   "${CUSTOMER_NAME}-dev-sandbox-app|${CUSTOMER_NAME} AI Skill Dev Sandbox|ge-skill-developers@${CUSTOMER_DOMAIN}" \
   "${CUSTOMER_NAME}-service-desk-app|${CUSTOMER_NAME} Service Desk Assistant|ge-service-desk-users@${CUSTOMER_DOMAIN}" \
@@ -221,10 +221,25 @@ for SPEC in \
   IFS="|" read -r APP_ID APP_NAME ACCESS_GROUP <<< "${SPEC}"
   WORKSPACE_KEY="app-global-${APP_ID}"
   if [[ "${DRY_RUN}" == "true" ]]; then
-    echo "[DRY-RUN] Would provision GE App '${APP_ID}' in isolated workspace '${WORKSPACE_KEY}' bound to '${ACCESS_GROUP}'"
+    "${SCRIPT_DIR}/create_app_from_template.sh" \
+      --app-id "${APP_ID}" \
+      --app-display-name "${APP_NAME}" \
+      --customer-name "${CUSTOMER_NAME}" \
+      --customer-company-name "${CUSTOMER_NAME}" \
+      --customer-domain "${CUSTOMER_DOMAIN}" \
+      --gcp-project-id "${GCP_PROJECT_ID}" \
+      --access-group "${ACCESS_GROUP}" \
+      --render-only
+    echo "[DRY-RUN] Rendered 16-Point Template configs/${APP_ID}.env and would provision in isolated workspace '${WORKSPACE_KEY}'"
   else
-    TF_WORKSPACE_OVERRIDE="${WORKSPACE_KEY}" "${SCRIPT_DIR}/deploy.sh" \
-      --config "${CONFIGS_DIR}/${APP_ID}.env"
+    "${SCRIPT_DIR}/create_app_from_template.sh" \
+      --app-id "${APP_ID}" \
+      --app-display-name "${APP_NAME}" \
+      --customer-name "${CUSTOMER_NAME}" \
+      --customer-company-name "${CUSTOMER_NAME}" \
+      --customer-domain "${CUSTOMER_DOMAIN}" \
+      --gcp-project-id "${GCP_PROJECT_ID}" \
+      --access-group "${ACCESS_GROUP}"
   fi
 done
 

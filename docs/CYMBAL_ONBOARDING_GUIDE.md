@@ -754,64 +754,87 @@ TF_WORKSPACE_OVERRIDE="m365-global-cymbal-m365" ./deploy_m365.sh \
 
 ---
 
-## Phase 3: Departmental Gemini Enterprise Apps — Stack 02
+## Phase 3: Departmental Gemini Enterprise Apps — 16-Point Master App Template & Stack 02 (`create_app_from_template.sh`)
 
-Each Cymbal business unit gets its own Gemini Enterprise Engine (`02-ge-app-instance`) with **Per-App Terraform Workspace Isolation** (`app-global-<ge_app_id>`), its own Enterprise Knowledge datastore (`<ge_app_id>-enterprise-knowledge-ds-01`), automatic binding to the 9 shared `cymbal-m365` entity datastores, and automatic creation of the least-privilege `geConnectorAuthUser` role on the M365 collections.
+Every Cymbal departmental Gemini Enterprise App is instantiated from the **Master 16-Point Enterprise App Template** ([`infra/configs/templates/ge-app-master.template.env`](../infra/configs/templates/ge-app-master.template.env)) using [`infra/create_app_from_template.sh`](../infra/create_app_from_template.sh) and [`infra/scripts/configure_ge_app.sh`](../infra/scripts/configure_ge_app.sh).
 
-We recommend provisioning **4 GE Apps** for Cymbal:
+### 16-Point Enterprise App Configuration Matrix (Included in Every Cymbal App Template)
+
+| # | Enterprise Capability | Template Variable(s) | Discovery Engine REST API / Resource Target | Cymbal Default Configuration |
+| :- | :--- | :--- | :--- | :--- |
+| **1** | **App Core Configuration** | `GE_APP_ID`, `GE_APP_DISPLAY_NAME`, `GE_SEARCH_TIER`, `GE_ENABLE_LLM_ADDON` | `Engine` (`/v1alpha/.../engines/{app_id}`) | `SEARCH_TIER_ENTERPRISE`, `SEARCH_ADD_ON_LLM`, `APP_TYPE_INTRANET` |
+| **2** | **Identity Configuration for App** | `GE_IDENTITY_PROVIDER_TYPE`, `GE_APP_ACCESS_GROUP`, `GE_CLOUD_IDENTITY_CUSTOMER_ID` | `aclConfig` + Cloud Identity Group + Engine `:setIamPolicy` + `geConnectorAuthUser` | `idpType: GSUITE` (`cymbal.com`), exclusive per-app group IAM (`ge-<dept>-users@cymbal.com`) |
+| **3** | **Associate Connectors** | `GE_ENABLE_COMMON_CONNECTORS`, `GE_COMMON_CONNECTOR_COLLECTIONS`, `GE_COMMON_CONNECTOR_DATA_STORE_IDS` | `Engine.dataStoreIds` + Collection IAM | Attaches primary knowledge store + all 9 M365 SharePoint, OneDrive, Outlook & Teams entity stores |
+| **4** | **Admin-Configured Connector Display Names** | `GE_CONNECTOR_DISPLAY_NAMES_JSON` | `WidgetConfig.collectionComponents` & `dataStoreComponents` | `"Cymbal SharePoint Online"`, `"SharePoint Documents"`, `"Cymbal OneDrive"`, `"Cymbal Outlook Mail & Calendar"`, `"Cymbal Microsoft Teams"` |
+| **5** | **Autocomplete Configuration** | `GE_ENABLE_AUTOCOMPLETE`, `GE_AUTOCOMPLETE_MATCHING_ORDER`, `GE_ENABLE_PEOPLE_SUGGESTION`, `GE_ENABLE_RECENT_SEARCH` | `WidgetConfig.enableAutocomplete` & `uiSettings` | `true`, `SUGGESTION_MATCHING_ORDER_PREFIX`, People & Recent Search enabled |
+| **6** | **Feedback Configuration** | `GE_ENABLE_FEEDBACK`, `GE_FEEDBACK_ALLOW_DETAILED_COMMENT`, `GE_FEEDBACK_CAPTURE_THUMBS_UP_DOWN` | `WidgetConfig.uiSettings.enableQualityFeedback` | `true` (Thumbs Up/Down + detailed user feedback comment drawer enabled) |
+| **7** | **User Event Collection Configuration** | `GE_ENABLE_USER_EVENT_COLLECTION`, `GE_USER_EVENT_RETENTION_DAYS`, `GE_ENABLE_SEARCH_PERSONALIZATION` | `WidgetConfig.uiSettings.enableUserEventCollection` | `true` (`365` days retention + personalized ranking & autocomplete training) |
+| **8** | **App Logo & UI Branding** | `GE_APP_LOGO_URI`, `GE_APP_FAVICON_URI` | `WidgetConfig.uiBranding.logo` & `favicon` | `https://storage.googleapis.com/cymbal-ge-prod-assets/cymbal-logo.png` |
+| **9** | **LLM System Instructions** | `GE_ASSISTANT_ID`, `GE_ASSISTANT_SYSTEM_INSTRUCTION` | `Assistant.generationConfig.systemInstruction` (`/assistants/default_assistant`) | Department-specific grounding persona & ACL/Model Armor enforcement instructions |
+| **10** | **Google Web Search Grounding** | `GE_ENABLE_WEB_SEARCH_GROUNDING`, `GE_WEB_GROUNDING_TYPE` | `Assistant.enableWebGrounding` & `WidgetConfig.uiSettings.enableWebAppGrounding` | `true` (`WEB_GROUNDING_TYPE_GOOGLE_SEARCH`) |
+| **11** | **Enable Model Armor** | `GE_ENABLE_MODEL_ARMOR`, `GE_MODEL_ARMOR_PROMPT_TEMPLATE`, `GE_MODEL_ARMOR_RESPONSE_TEMPLATE`, `GE_MODEL_ARMOR_FAILURE_MODE` | `Engine.modelArmorConfig` & `Assistant.modelArmorConfig` | `true`, `cymbal-model-armor-prompt`, `cymbal-model-armor-response`, `FAIL_CLOSED` |
+| **12** | **Enable Knowledge Catalog** | `GE_ENABLE_KNOWLEDGE_CATALOG`, `GE_KNOWLEDGE_CATALOG_TAXONOMY` | `Engine.knowledgeGraphConfig.enableKnowledgeCatalog` | `true` (`cymbal-enterprise-taxonomy`) |
+| **13** | **Chat History Retention** | `GE_CHAT_HISTORY_RETENTION_DAYS`, `GE_CHAT_SESSION_TTL_SECONDS` | `Engine.chatHistoryConfig` & `Assistant.sessionTtl` | `90` days (`7776000s`) |
+| **14** | **Private Knowledge Graph (PKG)** | `GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH`, `GE_PKG_ENTITY_EXTRACTION_TYPES` | `Engine.knowledgeGraphConfig.enablePrivateKnowledgeGraph` & `WidgetConfig` | `true` (`PERSON,ORGANIZATION,PROJECT,ACRONYM,TOPIC`) |
+| **15** | **Full Feature Management Option** | `GE_FEATURE_AGENT_GALLERY`, `GE_FEATURE_NO_CODE_AGENT_BUILDER`, `GE_FEATURE_PROMPT_GALLERY`, `GE_FEATURE_MODEL_SELECTOR`, `GE_FEATURE_NOTEBOOK_LM`, `GE_FEATURE_DEEP_RESEARCH`, `GE_FEATURE_PEOPLE_SEARCH`, `GE_FEATURE_ACTIONS`, `GE_FEATURE_AUDIO_OVERVIEW` | `Engine.features` map | All 9 enterprise capabilities set to `FEATURE_STATE_ON` (configurable per app) |
+| **16** | **Observability Options** | `GE_ENABLE_OBSERVABILITY`, `GE_OBSERVABILITY_AUDIT_LOGGING`, `GE_OBSERVABILITY_QUERY_RESPONSE_LOGGING`, `GE_OBSERVABILITY_LATENCY_METRICS`, `GE_OBSERVABILITY_BQ_DATASET` | `Engine.observabilityConfig` + BigQuery Export (`cymbal_ge_observability`) | Full audit logging, query/response logging, latency metrics & BigQuery analytics export enabled |
+
+---
+
+### Creating & Provisioning Cymbal's 4 Departmental GE Apps from the Master Template (`create_app_from_template.sh`)
+
+We provision **4 isolated GE Apps** for Cymbal from [`infra/configs/templates/ge-app-master.template.env`](../infra/configs/templates/ge-app-master.template.env):
 1. **`cymbal-dev-sandbox-app`**: Isolated Dev/Sandbox GE App where Cymbal prompt engineers author and test new Skills.
 2. **`cymbal-service-desk-app`**: Bound to `ge-service-desk-users@cymbal.com`.
 3. **`cymbal-finance-app`**: Bound to `ge-finance-users@cymbal.com`.
 4. **`cymbal-hr-app`**: Bound to `ge-hr-users@cymbal.com`.
 
-### Provisioning Each Cymbal GE App via CLI (`deploy.sh`)
-
 ```bash
 cd /Users/mohanrajs/aops/geapphub/infra
 
-# Helper loop to provision all 4 Cymbal GE Apps with isolated Terraform workspaces
+# Render and deploy all 4 Cymbal Departmental GE Apps from the 16-Point Master Template
 for SPEC in \
-  "cymbal-dev-sandbox-app|Cymbal AI Skill Dev Sandbox|ge-skill-developers@cymbal.com" \
-  "cymbal-service-desk-app|Cymbal Service Desk Assistant|ge-service-desk-users@cymbal.com" \
-  "cymbal-finance-app|Cymbal Finance & Accounting Assistant|ge-finance-users@cymbal.com" \
-  "cymbal-hr-app|Cymbal People & HR Assistant|ge-hr-users@cymbal.com"; do
+  "cymbal-dev-sandbox-app|Cymbal AI Skill Dev Sandbox|ge-skill-developers@cymbal.com|You are the Cymbal AI Skill Sandbox Assistant for authoring and testing enterprise skills." \
+  "cymbal-service-desk-app|Cymbal Service Desk Assistant|ge-service-desk-users@cymbal.com|You are the Cymbal IT & Customer Service Desk Assistant. Ground answers in Cymbal SLA policies, Outlook escalations, and SharePoint runbooks." \
+  "cymbal-finance-app|Cymbal Finance & Accounting Assistant|ge-finance-users@cymbal.com|You are the Cymbal Finance & Accounting Assistant. Ground answers in Cymbal quarterly ledgers, procurement policies, and audit controls." \
+  "cymbal-hr-app|Cymbal People & HR Assistant|ge-hr-users@cymbal.com|You are the Cymbal People & HR Assistant. Ground answers in Cymbal employee benefits, onboarding handbooks, and HR policies."; do
 
-  IFS="|" read -r APP_ID APP_NAME ACCESS_GROUP <<< "${SPEC}"
-  WORKSPACE_KEY="app-global-${APP_ID}"
+  IFS="|" read -r APP_ID APP_NAME ACCESS_GROUP SYS_PROMPT <<< "${SPEC}"
 
-  cat > "configs/${APP_ID}.env" <<EOF
-GCP_PROJECT_ID="cymbal-ge-prod"
-GCP_REGION="us-central1"
-GE_LOCATION="global"
-GE_APP_ID="${APP_ID}"
-GE_APP_DISPLAY_NAME="${APP_NAME}"
-GE_COMPANY_NAME="Cymbal"
-GE_SOLUTION_TYPE="SOLUTION_TYPE_SEARCH"
-GE_SEARCH_TIER="SEARCH_TIER_ENTERPRISE"
-GE_ENABLE_LLM_ADDON="true"
-GE_INDUSTRY_VERTICAL="GENERIC"
-GE_DATA_STORE_ID="${APP_ID}-enterprise-knowledge-ds-01"
-GE_DATA_STORE_DISPLAY_NAME="${APP_NAME} Knowledge Store"
-GE_BACKING_STORAGE_TYPE="GCS"
-GE_GCS_BUCKET_NAME="cymbal-ge-prod-${APP_ID}-docs"
-GE_IDENTITY_PROVIDER_TYPE="GSUITE"
-GE_CUSTOMER_DOMAIN="cymbal.com"
-GE_APP_ACCESS_GROUP="${ACCESS_GROUP}"
-GE_APP_GROUP_MEMBERS="admin@cymbal.com"
-ENABLE_COMMON_CONNECTORS="true"
-COMMON_CONNECTORS_CONFIG="configs/cymbal-m365.env"
-TF_STATE_BUCKET="cymbal-ge-tfstate"
-TF_STATE_PREFIX="ge-apphub/02-ge-app-instance/${WORKSPACE_KEY}"
-EOF
-
-  # 1. Plan in isolated workspace (never overwrites previously created Cymbal apps)
-  TF_WORKSPACE_OVERRIDE="${WORKSPACE_KEY}" ./deploy.sh \
-    --config "configs/${APP_ID}.env" \
+  # 1. Render config/<APP_ID>.env from template & run dry-run validation in isolated workspace app-global-<APP_ID>
+  ./create_app_from_template.sh \
+    --app-id "${APP_ID}" \
+    --app-display-name "${APP_NAME}" \
+    --customer-name "cymbal" \
+    --customer-company-name "Cymbal" \
+    --customer-domain "cymbal.com" \
+    --gcp-project-id "cymbal-ge-prod" \
+    --access-group "${ACCESS_GROUP}" \
+    --system-instruction "${SYS_PROMPT}" \
+    --logo-uri "https://storage.googleapis.com/cymbal-ge-prod-assets/cymbal-logo.png" \
+    --chat-retention-days 90 \
+    --enable-web-grounding true \
+    --enable-model-armor true \
+    --enable-knowledge-catalog true \
+    --enable-pkg true \
     --dry-run
 
-  # 2. Apply
-  TF_WORKSPACE_OVERRIDE="${WORKSPACE_KEY}" ./deploy.sh \
-    --config "configs/${APP_ID}.env"
+  # 2. Apply full 16-point App, Identity, Connector Display Names, Widget, Model Armor & Observability config
+  ./create_app_from_template.sh \
+    --app-id "${APP_ID}" \
+    --app-display-name "${APP_NAME}" \
+    --customer-name "cymbal" \
+    --customer-company-name "Cymbal" \
+    --customer-domain "cymbal.com" \
+    --gcp-project-id "cymbal-ge-prod" \
+    --access-group "${ACCESS_GROUP}" \
+    --system-instruction "${SYS_PROMPT}" \
+    --logo-uri "https://storage.googleapis.com/cymbal-ge-prod-assets/cymbal-logo.png" \
+    --chat-retention-days 90 \
+    --enable-web-grounding true \
+    --enable-model-armor true \
+    --enable-knowledge-catalog true \
+    --enable-pkg true
 done
 ```
 
