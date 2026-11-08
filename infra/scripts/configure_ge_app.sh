@@ -494,8 +494,8 @@ revoke_project_level_ge_access() {
   local group_email="${GE_APP_ACCESS_GROUP:-${GE_APP_ID}-users@${domain}}"
   local group_member="group:${group_email#group:}"
   local cond_title="Only ${GE_APP_ID}"
-  local cond_desc="Restricts access exclusively to ${GE_APP_DISPLAY_NAME:-${GE_APP_ID}} (${GE_APP_ID})"
-  local cond_expr="resource.name.startsWith(\"projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/collections/${GE_COLLECTION_ID:-default_collection}/engines/${GE_APP_ID}\") || resource.name.endsWith(\"/engines/${GE_APP_ID}\")"
+  local cond_desc="Restricts access exclusively to ${GE_APP_DISPLAY_NAME:-${GE_APP_ID}} (${GE_APP_ID}) and NotebookLM"
+  local cond_expr="resource.name.startsWith(\"projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/collections/${GE_COLLECTION_ID:-default_collection}/engines/${GE_APP_ID}\") || resource.name.endsWith(\"/engines/${GE_APP_ID}\") || resource.name.contains(\"/notebooks\")"
 
   local policy_json set_payload
   policy_json="$(ge_curl_request "POST" "${crm_base}:getIamPolicy" '{"options":{"requestedPolicyVersion":3}}' "true" || echo '{}')"
@@ -547,10 +547,16 @@ configure_connector_oauth_iam() {
     role_payload="$(jq -n --arg roleId "${role_id}" '{
       roleId: $roleId,
       role: {
-        title: "Gemini Enterprise Connector OAuth User",
-        description: "Least-privilege location and dataConnector OAuth permissions without granting cross-app Engine access.",
+        title: "Gemini Enterprise Connector OAuth & NotebookLM User",
+        description: "Least-privilege location, dataConnector OAuth, and NotebookLM permissions without granting cross-app Engine access.",
         stage: "GA",
         includedPermissions: [
+          "discoveryengine.accounts.create",
+          "discoveryengine.audioOverviews.create",
+          "discoveryengine.audioOverviews.delete",
+          "discoveryengine.audioOverviews.get",
+          "discoveryengine.audioOverviews.getIceConfig",
+          "discoveryengine.audioOverviews.sendSdpOffer",
           "discoveryengine.authorizations.storeUserAuthorization",
           "discoveryengine.collections.get",
           "discoveryengine.dataConnectors.acquireAccessToken",
@@ -563,30 +569,61 @@ configure_connector_oauth_iam() {
           "discoveryengine.locations.buildAuthorizationUrl",
           "discoveryengine.locations.completeExternalIdentities",
           "discoveryengine.locations.fetchAgentCards",
+          "discoveryengine.locations.getConnectorSource",
           "discoveryengine.locations.listConnectorSources",
+          "discoveryengine.notebooks.create",
+          "discoveryengine.notebooks.generateGuide",
+          "discoveryengine.notebooks.get",
+          "discoveryengine.notebooks.getAnalytics",
+          "discoveryengine.notebooks.getIamPolicy",
+          "discoveryengine.notebooks.interactSources",
+          "discoveryengine.notebooks.list",
+          "discoveryengine.notebooks.removeSelf",
+          "discoveryengine.notebooks.setIamPolicy",
+          "discoveryengine.notebooks.update",
+          "discoveryengine.notes.create",
+          "discoveryengine.notes.delete",
+          "discoveryengine.notes.get",
+          "discoveryengine.notes.update",
+          "discoveryengine.podcasts.create",
+          "discoveryengine.sources.checkFreshness",
+          "discoveryengine.sources.create",
+          "discoveryengine.sources.delete",
+          "discoveryengine.sources.generateDocumentGuide",
+          "discoveryengine.sources.get",
+          "discoveryengine.sources.refresh",
+          "discoveryengine.sources.update",
           "discoveryengine.users.get",
-          "discoveryengine.users.update"
+          "discoveryengine.users.update",
+          "resourcemanager.projects.get"
         ]
       }
     }')"
     ge_curl_request "POST" "https://iam.googleapis.com/v1/projects/${GCP_PROJECT_ID}/roles" "${role_payload}" "true" >/dev/null || true
   fi
 
-  # Bind group_member to geConnectorAuthUser on project
+  # Bind group_member to geConnectorAuthUser, notebookLmUser, and notebookOwner on project
   local crm_base="https://cloudresourcemanager.googleapis.com/v1/projects/${GCP_PROJECT_ID}"
   local pol_json updated_pol
   pol_json="$(ge_curl_request "POST" "${crm_base}:getIamPolicy" '{"options":{"requestedPolicyVersion":3}}' "true" || echo '{}')"
-  updated_pol="$(jq -n --argjson pol "${pol_json}" --arg role "${full_role}" --arg member "${group_member}" '{
-    policy: (
-      $pol | .version = 3 | .bindings = (
-        ([(.bindings // [])[] | select(.role != $role)]) +
-        [{
-          role: $role,
-          members: ((([(.bindings // [])[] | select(.role == $role) | .members[]?] + [$member]) | unique))
-        }]
+  updated_pol="$(jq -n --argjson pol "${pol_json}" --arg role "${full_role}" --arg member "${group_member}" '
+    def bind_uncond(r):
+      {
+        role: r,
+        members: ((([$pol.bindings[]? | select(.role == r and ((.condition // null) == null)) | .members[]?] + [$member]) | unique))
+      };
+    {
+      policy: (
+        $pol | .version = 3 | .bindings = (
+          ([(.bindings // [])[] | select(((.role != $role) and (.role != "roles/discoveryengine.notebookLmUser") and (.role != "roles/discoveryengine.notebookOwner")) or ((.condition // null) != null))]) +
+          [
+            bind_uncond($role),
+            bind_uncond("roles/discoveryengine.notebookLmUser"),
+            bind_uncond("roles/discoveryengine.notebookOwner")
+          ]
+        )
       )
-    )
-  }')"
+    }')"
   ge_curl_request "POST" "${crm_base}:setIamPolicy" "${updated_pol}" "true" >/dev/null || true
 
   # Grant Collection-level IAM on each shared connector collection
