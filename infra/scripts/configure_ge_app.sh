@@ -666,6 +666,50 @@ ensure_app_cloud_identity_group() {
   fi
 }
 
+ensure_project_license_config() {
+  local base_v1alpha
+  base_v1alpha="$(ge_api_base_url "${GE_LOCATION}" "v1alpha")"
+  local parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}"
+
+  log_info "Ensuring active Gemini Enterprise LicenseConfig and UserStore auto-registration in '${GCP_PROJECT_ID}'..."
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    ge_curl_request "GET" "${base_v1alpha}/${parent}/licenseConfigs" "" "true" >/dev/null
+    return 0
+  fi
+
+  local lc_list active_lc_name
+  lc_list="$(ge_curl_request "GET" "${base_v1alpha}/${parent}/licenseConfigs" "" "true" || echo '{}')"
+  active_lc_name="$(jq -r '.licenseConfigs[]? | select(.state == "ACTIVE") | .name' <<<"${lc_list}" 2>/dev/null | head -n 1 || true)"
+
+  if [[ -z "${active_lc_name}" ]]; then
+    local trial_id="${GE_LICENSE_CONFIG_ID:-free_trial_gemini}"
+    local trial_seats="${GE_TRIAL_LICENSE_COUNT:-50}"
+    log_info "No active LicenseConfig found in '${GCP_PROJECT_ID}'. Provisioning trial LicenseConfig '${trial_id}' (${trial_seats} seats)..."
+    local trial_payload create_lc_resp
+    trial_payload="$(jq -n --arg count "${trial_seats}" '{
+      licenseCount: $count,
+      subscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT",
+      subscriptionTerm: "SUBSCRIPTION_TERM_ONE_MONTH",
+      freeTrial: true
+    }')"
+    create_lc_resp="$(ge_curl_request "POST" "${base_v1alpha}/${parent}/licenseConfigs?licenseConfigId=${trial_id}" "${trial_payload}" "true" || echo '{}')"
+    active_lc_name="$(jq -r '.name // empty' <<<"${create_lc_resp}" 2>/dev/null || true)"
+  fi
+
+  if [[ -n "${active_lc_name}" ]]; then
+    local us_payload
+    us_payload="$(jq -n --arg lc "${active_lc_name}" '{
+      defaultLicenseConfig: $lc,
+      enableLicenseAutoRegister: true,
+      enableExpiredLicenseAutoUpdate: true
+    }')"
+    ge_curl_request "PATCH" "${base_v1alpha}/${parent}/userStores/default_user_store?updateMask=defaultLicenseConfig,enableLicenseAutoRegister,enableExpiredLicenseAutoUpdate" "${us_payload}" "true" >/dev/null || true
+    log_ok "Gemini Enterprise UserStore bound to '${active_lc_name}' (enableLicenseAutoRegister=true)."
+  else
+    log_warn "Could not resolve or create an active LicenseConfig in '${GCP_PROJECT_ID}'."
+  fi
+}
+
 configure_gemini_enterprise_app() {
   local include_core_resources="${1:-false}"
   log_phase "CURL/API" "Configuring Gemini Enterprise App, ACLs, and Assistant via REST API"
@@ -681,6 +725,9 @@ configure_gemini_enterprise_app() {
   acl_payload="$(render_acl_payload)"
   ge_curl_request "PATCH" "${base_v1alpha}/${parent}/aclConfig" "${acl_payload}" >/dev/null
   log_ok "Identity/ACL configuration applied."
+
+  # 1b. Ensure Project-Level Gemini Enterprise LicenseConfig & UserStore Auto-Registration
+  ensure_project_license_config
 
   # 2. If running in --curl-only mode (without Terraform), ensure Data Store (if enabled) & Engine exist via curl
   if [[ "${include_core_resources}" == "true" ]]; then
