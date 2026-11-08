@@ -8,8 +8,37 @@
 #   - Entra Gallery SAML 2.0 App ("Google Cloud / G Suite Connector")
 # ==============================================================================
 
+terraform {
+  required_version = ">= 1.5.0"
+  required_providers {
+    azuread = {
+      source  = "hashicorp/azuread"
+      version = ">= 2.47.0"
+    }
+    google = {
+      source  = "hashicorp/google"
+      version = ">= 5.0.0"
+    }
+  }
+}
+
+variable "entra_tenant_id" {
+  type        = string
+  description = "Microsoft Entra ID Tenant UUID or primary domain."
+}
+
 variable "gcp_project_id" {
   type = string
+}
+
+provider "azuread" {
+  tenant_id = var.entra_tenant_id
+}
+
+provider "google" {
+  project               = var.gcp_project_id
+  user_project_override = true
+  billing_project       = var.gcp_project_id
 }
 
 variable "customer_name" {
@@ -44,6 +73,7 @@ variable "create_entra_department_groups" {
 
 module "entra_bootstrap" {
   source                         = "../../modules/entra-bootstrap"
+  entra_tenant_id                = var.entra_tenant_id
   gcp_project_id                 = var.gcp_project_id
   customer_name                  = var.customer_name
   customer_domain                = var.customer_domain

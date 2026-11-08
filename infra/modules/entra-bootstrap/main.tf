@@ -26,6 +26,12 @@ terraform {
   }
 }
 
+variable "entra_tenant_id" {
+  type        = string
+  default     = ""
+  description = "Microsoft Entra ID Tenant UUID or primary domain."
+}
+
 variable "gcp_project_id" {
   type        = string
   description = "Target Google Cloud Project ID where Secret Manager stores M365 credentials."

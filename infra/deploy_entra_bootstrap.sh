@@ -274,6 +274,7 @@ ensure_cloud_identity_saml_profile
 if [[ "${MODE}" == "terraform" ]]; then
   cd "${STACK_DIR}"
   WORKSPACE_NAME="entra-${CUSTOMER_NAME}"
+  export ARM_TENANT_ID="${ENTRA_TENANT_ID}"
 
   echo "[1/4] Initializing Terraform Stack 00 (00-entra-bootstrap)..."
   terraform init -input=false
@@ -284,7 +285,10 @@ if [[ "${MODE}" == "terraform" ]]; then
     terraform workspace new "${WORKSPACE_NAME}"
   fi
 
+  terraform validate
+
   TF_ARGS=(
+    -var="entra_tenant_id=${ENTRA_TENANT_ID}"
     -var="customer_name=${CUSTOMER_NAME}"
     -var="customer_domain=${CUSTOMER_DOMAIN}"
     -var="gcp_project_id=${GCP_PROJECT_ID}"
@@ -292,6 +296,23 @@ if [[ "${MODE}" == "terraform" ]]; then
     -var="saml_sp_entity_id=${SAML_SP_ENTITY_ID}"
     -var="saml_sp_acs_url=${SAML_SP_ACS_URL}"
   )
+
+  if ! az account show >/dev/null 2>&1; then
+    if [[ "${DRY_RUN}" == "true" ]]; then
+      echo "[WARN] Azure CLI is not logged in yet ('az login --tenant ${ENTRA_TENANT_ID} --allow-no-subscriptions')."
+      echo "[DRY-RUN] Terraform configuration validated. When authenticated to Entra ID, Stack 00 will provision:"
+      echo "  + azuread_application.m365_connector (${OAUTH_APP_NAME}) with 47 Graph & SharePoint permissions"
+      echo "  + azuread_service_principal.m365_connector + Tenant-Wide Admin Consent"
+      echo "  + google_secret_manager_secret.m365_credentials (projects/${GCP_PROJECT_ID}/secrets/${M365_SECRET_ID})"
+      echo "  + azuread_application_from_template.google_cloud_saml (${SAML_APP_NAME})"
+      echo "  + azuread_group.department_groups (${DEPARTMENT_GROUPS[*]}) + SAML Role Assignments"
+      echo "  + azuread_service_principal_token_signing_certificate.saml_cert -> ${SAML_CERT_OUT}"
+      exit 0
+    else
+      echo "[AUTH] No active Azure CLI session found. Launching 'az login --tenant ${ENTRA_TENANT_ID} --allow-no-subscriptions'..."
+      az login --tenant "${ENTRA_TENANT_ID}" --allow-no-subscriptions
+    fi
+  fi
 
   echo "[2/4] Running terraform plan..."
   terraform plan "${TF_ARGS[@]}" -out=tfplan
@@ -339,7 +360,10 @@ if [[ "${MODE}" == "az-graph" ]]; then
   fi
 
   echo "[1/8] Verifying Azure CLI session for Tenant ${ENTRA_TENANT_ID}..."
-  az account show --output none
+  if ! az account show --output none >/dev/null 2>&1; then
+    echo "[AUTH] No active Azure CLI session found. Launching 'az login --tenant ${ENTRA_TENANT_ID} --allow-no-subscriptions'..."
+    az login --tenant "${ENTRA_TENANT_ID}" --allow-no-subscriptions
+  fi
 
   echo "[2/8] [Step 0A.1] Creating Entra OAuth 2.0 App Registration (${OAUTH_APP_NAME})..."
   APP_JSON=$(az ad app create \
