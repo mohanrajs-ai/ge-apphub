@@ -1,0 +1,37 @@
+{
+  "skill_id": "daily-morning-summary",
+  "display_name": "Daily Morning Summary (M365 Calendar + Mail + Teams)",
+  "version": "1.0.0",
+  "category": "composite_skill",
+  "entrypoint": "SKILL.md",
+  "sub_skills": [
+    {
+      "skill_id": "m365-calendar-briefing",
+      "Order": 1,
+      "path": "../../subskills/m365-calendar-briefing/SKILL.md",
+      "required_connectors": ["m365-outlook-calendar-connector"]
+    },
+    {
+      "skill_id": "m365-outlook-triage",
+      "Order": 2,
+      "path": "../../subskills/m365-outlook-triage/SKILL.md",
+      "required_connectors": ["m365-outlook-connector"]
+    },
+    {
+      "skill_id": "m365-teams-incident-swarm",
+      "Order": 3,
+      "path": "../../subskills/m365-teams-incident-swarm/SKILL.md",
+      "required_connectors": ["m365-teams-connector"]
+    }
+  ],
+  "governance": {
+    "requires_admin_approval": true,
+    "approver_group": "ge-platform-admins@mohanrajs.demo.altostrat.com",
+    "target_apps": [
+      "cymbal-service-desk-app",
+      "cymbal-dev-sandbox-app",
+      "cymbal-finance-app",
+      "cymbal-hr-app"
+    ]
+  }
+}

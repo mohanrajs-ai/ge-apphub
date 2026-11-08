@@ -1,0 +1,14 @@
+{
+  "skill_name": "customer-escalation-resolver",
+  "skill_type": "composite",
+  "description": "Orchestrates M365 Outlook triage and SharePoint policy lookup to resolve customer escalations.",
+  "required_connectors": ["outlook", "sharepoint"],
+  "sub_skills": [
+    "m365-outlook-triage",
+    "sharepoint-policy-lookup"
+  ],
+  "recommended_groups": [
+    "support-leads@mohanrajs.altostrat.com",
+    "engineering@mohanrajs.altostrat.com"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "skill_id": "service-desk-major-incident-bridge",
+  "display_name": "Service Desk Major Incident Bridge (Teams + SharePoint + OneDrive + Outlook)",
+  "version": "1.0.0",
+  "category": "composite_skill",
+  "entrypoint": "SKILL.md",
+  "sub_skills": [
+    {
+      "skill_id": "m365-teams-incident-swarm",
+      "Order": 1,
+      "path": "../../subskills/m365-teams-incident-swarm/SKILL.md",
+      "required_connectors": ["m365-teams-connector"]
+    },
+    {
+      "skill_id": "sharepoint-policy-lookup",
+      "Order": 2,
+      "path": "../../subskills/sharepoint-policy-lookup/SKILL.md",
+      "required_connectors": ["m365-sharepoint-connector"]
+    },
+    {
+      "skill_id": "m365-onedrive-artifact-finder",
+      "Order": 3,
+      "path": "../../subskills/m365-onedrive-artifact-finder/SKILL.md",
+      "required_connectors": ["m365-onedrive-connector"]
+    },
+    {
+      "skill_id": "m365-outlook-triage",
+      "Order": 4,
+      "path": "../../subskills/m365-outlook-triage/SKILL.md",
+      "required_connectors": ["m365-outlook-connector"]
+    }
+  ],
+  "governance": {
+    "requires_admin_approval": true,
+    "approver_group": "ge-platform-admins@mohanrajs.demo.altostrat.com",
+    "target_apps": [
+      "cymbal-service-desk-app",
+      "cymbal-dev-sandbox-app",
+      "cymbal-finance-app",
+      "cymbal-hr-app"
+    ]
+  }
+}

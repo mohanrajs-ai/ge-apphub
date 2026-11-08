@@ -524,6 +524,10 @@ def _skill_record_to_model(
         if workflow_row is not None
         else None
     )
+    resolved_sub_skills = list(
+        row.sub_skills
+        or (wf_model.sub_skills if wf_model is not None else [])
+    )
     return models.DiscoveredSkill(
         skill_id=row.skill_id,
         resource_name=row.resource_name,
@@ -542,6 +546,7 @@ def _skill_record_to_model(
         iam_proposals=proposals,
         shared_principals=list(row.shared_principals or []),
         subfiles=subfiles,
+        sub_skills=resolved_sub_skills,
         create_time=row.create_time,
         update_time=row.update_time,
         last_synced_at=(

@@ -4,6 +4,12 @@ import os
 
 import pydantic
 
+DEFAULT_ADMIN_USERS: tuple[str, ...] = (
+    "admin@mohanrajs.altostrat.com",
+    "infosec@mohanrajs.altostrat.com",
+    "infosec-admin@mohanrajs.altostrat.com",
+)
+
 
 class Settings(pydantic.BaseModel):
     """Application settings resolved from environment variables."""
@@ -12,7 +18,9 @@ class Settings(pydantic.BaseModel):
     gcp_location: str = "global"
     firestore_collection: str = "ge_app_catalog"
     use_mock_data: bool = False
-    admin_users: list[str] = pydantic.Field(default_factory=list)
+    admin_users: list[str] = pydantic.Field(
+        default_factory=lambda: list(DEFAULT_ADMIN_USERS)
+    )
     google_client_id: str = ""
     google_client_secret: str = ""
     session_secret: str = "ge-apphub-session-secret-key"
@@ -84,7 +92,11 @@ def get_settings() -> Settings:
         use_mock_data=_parse_bool(
             os.environ.get("USE_MOCK_DATA"), default=False
         ),
-        admin_users=_parse_csv(os.environ.get("ADMIN_USERS")),
+        admin_users=sorted(
+            set(DEFAULT_ADMIN_USERS).union(
+                _parse_csv(os.environ.get("ADMIN_USERS"))
+            )
+        ),
         google_client_id=os.environ.get("GOOGLE_CLIENT_ID", "").strip(),
         google_client_secret=os.environ.get(
             "GOOGLE_CLIENT_SECRET", ""

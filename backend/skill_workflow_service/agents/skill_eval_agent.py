@@ -380,6 +380,57 @@ def evaluate_token_optimization(
     }
 
 
+def extract_sub_skills(instruction: str) -> list[str]:
+    """ADK Tool: Extracts sub_skills declared in YAML frontmatter or steps.
+
+    Args:
+        instruction: Raw or templatized SKILL.md markdown text.
+
+    Returns:
+        Ordered list of referenced sub-skill identifiers.
+    """
+    text = (instruction or "").strip()
+    if not text:
+        return []
+    found: list[str] = []
+    seen: set[str] = set()
+
+    frontmatter_match = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
+    if frontmatter_match:
+        fm = frontmatter_match.group(1)
+        inline_match = re.search(r"sub_skills:\s*\[([^\]]+)\]", fm)
+        if inline_match:
+            for item in inline_match.group(1).split(","):
+                slug = item.strip().strip("'\"").lower()
+                if slug and slug not in seen:
+                    seen.add(slug)
+                    found.append(slug)
+        else:
+            block_match = re.search(
+                r"sub_skills:\s*\n((?:\s*-\s*[a-zA-Z0-9_-]+\s*\n?)+)", fm
+            )
+            if block_match:
+                for line in block_match.group(1).splitlines():
+                    slug = (
+                        re.sub(r"^\s*-\s*", "", line)
+                        .strip()
+                        .strip("'\"")
+                        .lower()
+                    )
+                    if slug and slug not in seen:
+                        seen.add(slug)
+                        found.append(slug)
+
+    for step_ref in re.findall(
+        r"sub-skill\s+`([a-zA-Z0-9_-]+)`", text, re.IGNORECASE
+    ):
+        slug = step_ref.strip().lower()
+        if slug and slug not in seen:
+            seen.add(slug)
+            found.append(slug)
+    return found
+
+
 def inspect_skill_markdown_structure(instruction: str) -> dict[str, Any]:
     """ADK Tool: Inspects SKILL.md markdown structure and required sections.
 
@@ -391,7 +442,7 @@ def inspect_skill_markdown_structure(instruction: str) -> dict[str, Any]:
     """
     text = (instruction or "").strip()
     lower = text.lower()
-    has_title = text.startswith("#")
+    has_title = text.startswith("#") or "\n# " in text
     has_when_to_use = "when to use" in lower or "trigger" in lower
     has_expected_io = (
         "expected input" in lower
@@ -462,6 +513,7 @@ class SkillEvaluationAdkAgent:
             "tools": [
                 templatize_skill_environment,
                 extract_required_connectors,
+                extract_sub_skills,
                 inspect_skill_markdown_structure,
                 evaluate_tool_references,
                 evaluate_token_optimization,
@@ -489,6 +541,7 @@ class SkillEvaluationAdkAgent:
         """
         templatized = templatize_skill_environment(instruction)
         required_connectors = extract_required_connectors(instruction)
+        sub_skills = extract_sub_skills(instruction)
         struct = inspect_skill_markdown_structure(instruction)
         tools_check = evaluate_tool_references(instruction)
         token_opt = evaluate_token_optimization(
@@ -598,6 +651,7 @@ class SkillEvaluationAdkAgent:
             "token_optimization": token_opt,
             "templatized_instruction": templatized,
             "required_connectors": required_connectors,
+            "sub_skills": sub_skills,
             "summary": (
                 f"Skill '{display_name}' passed ADK evaluation with score "
                 f"{score}/100 ({token_opt['total_tokens']} -> "

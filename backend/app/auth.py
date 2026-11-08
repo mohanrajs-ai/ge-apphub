@@ -563,6 +563,12 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
             dev_role = headers.get("x-dev-user-role")
             if dev_role and "@" not in dev_role:
                 token_user.roles = _normalize_roles(dev_role)
+            clean_token_email = (token_user.email or "").strip().lower()
+            if (
+                clean_token_email in settings.admin_users
+                or clean_token_email.startswith("admin@")
+            ) and "admin" not in token_user.roles:
+                token_user.roles.insert(0, "admin")
             return _enrich_groups_from_db(token_user)
 
     iap_email = headers.get("x-goog-authenticated-user-email")
@@ -592,6 +598,11 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
         elif dev_email:
             resolved_email = dev_email.strip().lower()
             resolved_roles = _normalize_roles(dev_role)
+            if (
+                resolved_email in settings.admin_users
+                or resolved_email.startswith("admin@")
+            ) and "admin" not in resolved_roles:
+                resolved_roles.insert(0, "admin")
         elif settings.use_mock_data:
             resolved_email = "developer@enterprise.example.com"
             resolved_roles = _normalize_roles(dev_role)
@@ -638,3 +649,26 @@ def resolve_current_user(request: fastapi.Request) -> models.UserContext:
         roles=["employee"],
         auth_source="unauthenticated_fallback",
     )
+
+
+def require_admin(
+    user: models.UserContext = fastapi.Depends(resolve_current_user),
+) -> models.UserContext:
+    """FastAPI dependency that enforces administrator role access.
+
+    Args:
+        user: Resolved current user context.
+
+    Returns:
+        Authenticated admin UserContext.
+
+    Raises:
+        fastapi.HTTPException: 403 if the user does not hold the admin role.
+    """
+    is_admin_email = user.email.lower().startswith("admin@")
+    if "admin" not in user.roles and not is_admin_email:
+        raise fastapi.HTTPException(
+            status_code=fastapi.status.HTTP_403_FORBIDDEN,
+            detail="Administrator role required for this operation.",
+        )
+    return user

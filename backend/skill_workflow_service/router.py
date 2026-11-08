@@ -9,6 +9,7 @@ from app import database
 from app import db_models
 from app import models
 from skill_workflow_service import engine as wf_engine
+from skill_workflow_service.agents import ge_discovery_llm
 
 router = fastapi.APIRouter(tags=["skill-workflows"])
 
@@ -175,6 +176,7 @@ def list_registry_skills(
             required_connectors=list(r.required_connectors or []),
             target_engines=list(r.target_engines or [r.engine_id]),
             distributed_apps=list(r.distributed_apps or []),
+            sub_skills=list(r.sub_skills or []),
             published_at=(
                 r.published_at.isoformat() if r.published_at else None
             ),
@@ -182,6 +184,48 @@ def list_registry_skills(
         for r in rows
     ]
     return models.SkillRegistryListResponse(items=items, total=len(items))
+
+
+@router.post(
+    "/api/v1/skills/seed-catalog",
+    response_model=models.SkillCatalogSeedResponse,
+)
+def seed_skills_catalog_endpoint(
+    session: orm.Session = fastapi.Depends(database.get_db_session),
+) -> models.SkillCatalogSeedResponse:
+    """Seeds atomic sub-skills and composite parent skills from catalog."""
+    seeded = ge_discovery_llm.seed_composite_skills_catalog(session)
+    return models.SkillCatalogSeedResponse(
+        seeded_skills=seeded,
+        total_seeded=len(seeded),
+    )
+
+
+@router.post(
+    "/api/v1/skills/orchestrate",
+    response_model=models.SkillOrchestrateResponse,
+)
+def orchestrate_skill_endpoint(
+    payload: models.SkillOrchestrateRequest,
+    request: fastapi.Request,
+    user: models.UserContext = fastapi.Depends(auth.resolve_current_user),
+    session: orm.Session = fastapi.Depends(database.get_db_session),
+) -> models.SkillOrchestrateResponse:
+    """Executes a Parent Skill and its Sub-Skills via GE :streamAssist."""
+    svc = ge_discovery_llm.UniversalSkillOrchestratorService(
+        settings=config.get_settings()
+    )
+    try:
+        return svc.orchestrate_skill(
+            session=session,
+            payload=payload,
+            calling_user_email=user.email,
+            request_headers=dict(request.headers),
+        )
+    except ValueError as exc:
+        raise fastapi.HTTPException(
+            status_code=404, detail=str(exc)
+        ) from exc
 
 
 @router.get(

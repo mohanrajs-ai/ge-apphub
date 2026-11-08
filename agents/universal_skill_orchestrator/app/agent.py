@@ -4,6 +4,7 @@ import os
 
 try:
     from app.tools.skill_orchestration import (
+        BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
         execute_subskill,
         extract_forwarded_ge_user_token,
@@ -11,6 +12,7 @@ try:
     )
 except ImportError:
     from agents.universal_skill_orchestrator.tools.skill_orchestration import (
+        BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
         execute_subskill,
         extract_forwarded_ge_user_token,
@@ -21,6 +23,11 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
 from google.adk.models.llm_request import LlmRequest
+
+DEFAULT_CATALOG_SUMMARY = ", ".join(
+    f"{item['skill_name']} ({item['skill_id']})"
+    for item in BUILTIN_M365_SKILL_REGISTRY
+)
 
 
 def capture_calling_ge_user_token(
@@ -39,7 +46,10 @@ def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
     """Dynamically builds the orchestrator system instruction per session."""
     active_name = ctx.state.get("active_skill_name", "None loaded")
     active_md = ctx.state.get("active_skill_markdown", "")
-    subskills = ctx.state.get("available_subskills_summary", "")
+    subskills = ctx.state.get(
+        "available_subskills_summary",
+        DEFAULT_CATALOG_SUMMARY,
+    )
     return (
         "You are the Universal Enterprise Skill Orchestrator running inside "
         "Gemini Enterprise.\n"
@@ -52,7 +62,7 @@ def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
         "response.\n\n"
         f"ACTIVE SKILL: {active_name}\n"
         f"ACTIVE SKILL INSTRUCTION:\n{active_md}\n\n"
-        f"AVAILABLE SUB-SKILLS:\n{subskills}"
+        f"AVAILABLE M365 SKILLS & SUB-SKILLS:\n{subskills}"
     )
 
 

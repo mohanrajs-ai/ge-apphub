@@ -114,6 +114,9 @@ def _ensure_schema_migrations(engine: sqlalchemy.Engine) -> None:
         ("skill_registry", "required_connectors", "JSON DEFAULT '[]'"),
         ("skill_registry", "target_engines", "JSON DEFAULT '[]'"),
         ("skill_registry", "distributed_apps", "JSON DEFAULT '[]'"),
+        ("ge_skills", "sub_skills", "JSON DEFAULT '[]'"),
+        ("skill_workflows", "sub_skills", "JSON DEFAULT '[]'"),
+        ("skill_registry", "sub_skills", "JSON DEFAULT '[]'"),
     ]
     inspector = sqlalchemy.inspect(engine)
     existing_tables = set(inspector.get_table_names())

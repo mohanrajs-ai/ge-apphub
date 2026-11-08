@@ -18,6 +18,7 @@ from sqlalchemy import orm
 from app import config
 from app import db_models
 from app import models
+from app.services import ge_agent_publisher
 from skill_workflow_service.agents import infosec_agent
 from skill_workflow_service.agents import skill_eval_agent
 
@@ -43,6 +44,9 @@ def workflow_record_to_model(
     req_connectors = list(
         row.required_connectors or eval_rep.get("required_connectors") or []
     )
+    sub_skills = list(
+        row.sub_skills or eval_rep.get("sub_skills") or []
+    )
     return models.SkillWorkflowItem(
         workflow_id=row.workflow_id,
         skill_id=row.skill_id,
@@ -61,6 +65,7 @@ def workflow_record_to_model(
         target_engines=list(row.target_engines or [row.engine_id]),
         target_app_evaluations=list(row.target_app_evaluations or []),
         distributed_apps=list(row.distributed_apps or []),
+        sub_skills=sub_skills,
         infosec_risk_level=row.infosec_risk_level,
         infosec_status=row.infosec_status,
         infosec_report=dict(row.infosec_report or {}),
@@ -722,6 +727,13 @@ class SkillWorkflowEngine:
         wf.required_connectors = list(
             eval_result.get("required_connectors") or []
         )
+        extracted_subskills = list(
+            skill.sub_skills
+            or eval_result.get("sub_skills")
+            or skill_eval_agent.extract_sub_skills(skill.instruction)
+        )
+        skill.sub_skills = extracted_subskills
+        wf.sub_skills = extracted_subskills
         wf.requested_groups = req_groups
         wf.distribution_scope = dist_scope
         wf.target_engines = target_engines
@@ -877,6 +889,13 @@ class SkillWorkflowEngine:
             wf.required_connectors
             or skill_eval_agent.extract_required_connectors(skill.instruction)
         )
+        resolved_sub_skills = list(
+            skill.sub_skills
+            or wf.sub_skills
+            or skill_eval_agent.extract_sub_skills(skill.instruction)
+        )
+        skill.sub_skills = resolved_sub_skills
+        wf.sub_skills = resolved_sub_skills
 
         # Stage 5: Publish the Skill in the GCP Agent Platform Skill Registry
         wf.current_stage = "PUBLISH_REGISTRY"
@@ -924,6 +943,7 @@ class SkillWorkflowEngine:
                 required_connectors=req_connectors,
                 target_engines=selected_targets,
                 distributed_apps=distributed_apps,
+                sub_skills=resolved_sub_skills,
                 published_at=now,
             )
             session.add(reg_row)
@@ -938,6 +958,7 @@ class SkillWorkflowEngine:
             reg_row.required_connectors = req_connectors
             reg_row.target_engines = selected_targets
             reg_row.distributed_apps = distributed_apps
+            reg_row.sub_skills = resolved_sub_skills
             reg_row.published_at = now
         wf.registry_id = reg_id
 
@@ -967,6 +988,15 @@ class SkillWorkflowEngine:
         wf.completed_at = now
         wf.updated_at = now
         session.commit()
+
+        publisher = ge_agent_publisher.GeAgentPublisherService(
+            settings=self._settings
+        )
+        for target_eng in selected_targets:
+            publisher.sync_starter_prompts_for_engine(
+                session=session,
+                engine_id=target_eng,
+            )
         return workflow_record_to_model(wf)
 
     def reject_workflow(

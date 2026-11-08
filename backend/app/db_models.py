@@ -264,6 +264,9 @@ class GESkillRecord(Base):
     subfiles: orm.Mapped[list[dict[str, str]]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
+    sub_skills: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
     create_time: orm.Mapped[str] = orm.mapped_column(
         sqlalchemy.String(128), default="", nullable=False
     )
@@ -367,6 +370,9 @@ class SkillWorkflowRecord(Base):
     distributed_apps: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
+    sub_skills: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
     started_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
         sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
     )
@@ -438,6 +444,9 @@ class SkillRegistryRecord(Base):
         sqlalchemy.JSON, default=list, nullable=False
     )
     distributed_apps: orm.Mapped[list[dict[str, Any]]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    sub_skills: orm.Mapped[list[str]] = orm.mapped_column(
         sqlalchemy.JSON, default=list, nullable=False
     )
     published_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
@@ -526,3 +535,73 @@ class SyncRunRecord(Base):
                 self.completed_at.isoformat() if self.completed_at else None
             ),
         }
+
+
+class ProvisioningJobRecord(Base):
+    """Persisted Terraform & REST infrastructure provisioning job record."""
+
+    __tablename__ = "provisioning_jobs"
+
+    id: orm.Mapped[int] = orm.mapped_column(
+        sqlalchemy.Integer, primary_key=True, autoincrement=True
+    )
+    job_id: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(128), unique=True, index=True, nullable=False
+    )
+    stack_type: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), index=True, nullable=False
+    )
+    title: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), nullable=False
+    )
+    workspace_key: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), index=True, nullable=False
+    )
+    state_backend_type: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="LOCAL_WORKSPACE", nullable=False
+    )
+    state_bucket: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(255), default="", nullable=False
+    )
+    state_prefix: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(512), default="", nullable=False
+    )
+    execution_mode: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PLAN_AND_WAIT", nullable=False
+    )
+    status: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(64), default="PLANNING", index=True, nullable=False
+    )
+    initiated_by: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    approved_by: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.String(320), default="", nullable=False
+    )
+    sanitized_config: orm.Mapped[dict[str, Any]] = orm.mapped_column(
+        sqlalchemy.JSON, default=dict, nullable=False
+    )
+    plan_summary: orm.Mapped[str] = orm.mapped_column(
+        sqlalchemy.Text, default="", nullable=False
+    )
+    log_lines: orm.Mapped[list[str]] = orm.mapped_column(
+        sqlalchemy.JSON, default=list, nullable=False
+    )
+    outputs: orm.Mapped[dict[str, Any]] = orm.mapped_column(
+        sqlalchemy.JSON, default=dict, nullable=False
+    )
+    error_message: orm.Mapped[str | None] = orm.mapped_column(
+        sqlalchemy.Text, nullable=True
+    )
+    created_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), default=_utc_now, nullable=False
+    )
+    updated_at: orm.Mapped[datetime.datetime] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True),
+        default=_utc_now,
+        onupdate=_utc_now,
+        nullable=False,
+    )
+    completed_at: orm.Mapped[datetime.datetime | None] = orm.mapped_column(
+        sqlalchemy.DateTime(timezone=True), nullable=True
+    )

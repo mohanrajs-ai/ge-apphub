@@ -315,6 +315,8 @@ else
     --gcp-project-id "${GCP_PROJECT_ID}" \
     --region "${GCP_REGION}" \
     --all-apps
+  "${SCRIPT_DIR}/publish_m365_skills.sh" \
+    --env "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env"
 fi
 
 echo ""

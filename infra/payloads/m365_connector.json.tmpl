@@ -1,0 +1,37 @@
+{
+  "dataSource": "${M365_DATA_SOURCE}",
+  "params": {
+    "tenant_id": "${M365_TENANT_ID}",
+    "client_id": "${M365_CLIENT_ID}",
+    "client_secret": "${M365_CLIENT_SECRET}",
+    "instance_uri": "${M365_INSTANCE_URI}"
+  },
+  "refreshInterval": "${M365_REFRESH_INTERVAL}",
+  "entities": [
+    {
+      "entityName": "${M365_ENTITY_NAME}"
+    }
+  ],
+  "connectorModes": [
+    "${M365_CONNECTOR_MODE}",
+    "ACTIONS"
+  ],
+  "actionConfig": {
+    "isActionConfigured": true,
+    "createBapConnection": true,
+    "actionParams": {
+      "tenant_id": "${M365_TENANT_ID}",
+      "client_id": "${M365_CLIENT_ID}",
+      "client_secret": "${M365_CLIENT_SECRET}",
+      "instance_uri": "${M365_INSTANCE_URI}"
+    }
+  },
+  "bapConfig": {
+    "supportedConnectorModes": [
+      "ACTIONS"
+    ],
+    "enabledActions": [
+      "${M365_ENABLED_ACTION}"
+    ]
+  }
+}

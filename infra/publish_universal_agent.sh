@@ -213,9 +213,10 @@ for raw_app in "${TARGET_APPS[@]}"; do
         scope: "ALL_USERS"
       },
       starterPrompts: [
-        {text: "Run /daily-morning-summary workflow"},
+        {text: "Run /daily-morning-summary (m365-calendar-briefing + m365-outlook-triage + m365-teams-incident-swarm)"},
+        {text: "Run /service-desk-major-incident-bridge (m365-teams-incident-swarm + sharepoint-policy-lookup + m365-onedrive-artifact-finder + m365-outlook-triage)"},
         {text: "Run /customer-escalation-resolver (m365-outlook-triage + sharepoint-policy-lookup)"},
-        {text: "List available enterprise skills for this department"}
+        {text: "List all M365 composite skills and atomic sub-skills in the Skill Registry"}
       ],
       adkAgentDefinition: {
         toolSettings: {

@@ -1,0 +1,46 @@
+# ==============================================================================
+# Declarative Group & Gemini Enterprise License Membership CSV
+# ==============================================================================
+# Columns:
+#   group_email       : Cloud Identity / Entra group email (or mailNickname prefix)
+#   user_email        : User email / UPN (or username prefix on SHARED_IDENTITY_DOMAIN)
+#   role              : Cloud Identity group role (MEMBER, MANAGER, OWNER) [default: MEMBER]
+#   sync_entra        : Also add user to matching Entra ID Security Group (true/false) [default: true]
+#   assign_ge_license : Also assign active Gemini Enterprise license in UserStore (true/false) [default: true]
+# ==============================================================================
+group_email,user_email,role,sync_entra,assign_ge_license
+ge-platform-admins@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,OWNER,false,true
+ge-platform-admins@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,OWNER,false,true
+ge-platform-admins@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-platform-admins@mohanrajs.demo.altostrat.com,adelev@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,OWNER,false,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,MEMBER,false,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,alexw@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,diegos@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-skill-developers@mohanrajs.demo.altostrat.com,pradeepg@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,MEMBER,false,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,MEMBER,false,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,diegos@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,pradeepg@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,gradya@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-service-desk-users@mohanrajs.demo.altostrat.com,isaiahl@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-finance-users@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,MEMBER,false,true
+ge-finance-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,MEMBER,false,true
+ge-finance-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-finance-users@mohanrajs.demo.altostrat.com,henriettam@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-finance-users@mohanrajs.demo.altostrat.com,johannal@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-finance-users@mohanrajs.demo.altostrat.com,jonis@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-hr-users@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,MEMBER,false,true
+ge-hr-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,MEMBER,false,true
+ge-hr-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-hr-users@mohanrajs.demo.altostrat.com,lidiah@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-hr-users@mohanrajs.demo.altostrat.com,pattif@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-hr-users@mohanrajs.demo.altostrat.com,lynner@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,admin@mohanrajs.altostrat.com,MEMBER,false,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.altostrat.com,MEMBER,false,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,mohanraj@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,alexw@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,meganb@mohanrajs.demo.altostrat.com,MEMBER,true,true
+ge-marketing-users@mohanrajs.demo.altostrat.com,miriamg@mohanrajs.demo.altostrat.com,MEMBER,true,true

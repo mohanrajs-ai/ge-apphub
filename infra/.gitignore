@@ -1,0 +1,19 @@
+# Local customer config (contains environment-specific values)
+config.env
+
+# Execution logs & coverage reports
+logs/
+.coverage/
+
+# Terraform artifacts & local state
+**/.terraform/
+**/terraform.tfstate.d/
+**/.terraform.lock.hcl
+**/*.tfstate
+**/*.tfstate.*
+**/*.tfplan
+**/tfplan
+**/.terraform.tfstate.lock.info
+*.tfvars
+**/*.auto.tfvars.json
+!terraform.tfvars.example

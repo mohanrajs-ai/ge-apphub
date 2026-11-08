@@ -175,6 +175,7 @@ class SkillWorkflowItem(pydantic.BaseModel):
     distributed_apps: list[dict[str, Any]] = pydantic.Field(
         default_factory=list
     )
+    sub_skills: list[str] = pydantic.Field(default_factory=list)
     infosec_risk_level: str = "LOW"
     infosec_status: str = "PENDING"
     infosec_report: dict[str, Any] = pydantic.Field(default_factory=dict)
@@ -212,6 +213,7 @@ class DiscoveredSkill(pydantic.BaseModel):
     )
     shared_principals: list[str] = pydantic.Field(default_factory=list)
     subfiles: list[SkillSubfile] = pydantic.Field(default_factory=list)
+    sub_skills: list[str] = pydantic.Field(default_factory=list)
     create_time: str = ""
     update_time: str = ""
     last_synced_at: str | None = None
@@ -273,6 +275,7 @@ class SkillRegistryItem(pydantic.BaseModel):
     distributed_apps: list[dict[str, Any]] = pydantic.Field(
         default_factory=list
     )
+    sub_skills: list[str] = pydantic.Field(default_factory=list)
     published_at: str | None = None
 
 
@@ -322,3 +325,226 @@ class GroupListResponse(pydantic.BaseModel):
 
     items: list[CloudIdentityGroupInfo]
     total: int
+
+
+class GeAppProvisionRequest(pydantic.BaseModel):
+    """Request payload for Stack 02: Gemini Enterprise App provisioning."""
+
+    gcp_project_id: str = "mohandemo"
+    gcp_region: str = "us-central1"
+    ge_location: str = "global"
+    ge_app_id: str
+    ge_app_display_name: str
+    ge_company_name: str = "Enterprise Corp"
+    ge_solution_type: str = "SOLUTION_TYPE_SEARCH"
+    ge_search_tier: str = "SEARCH_TIER_ENTERPRISE"
+    ge_enable_llm_addon: bool = True
+    ge_industry_vertical: str = "GENERIC"
+    ge_data_store_id: str = ""
+    ge_data_store_display_name: str = ""
+    ge_backing_storage_type: str = "GCS"
+    ge_gcs_bucket_name: str = ""
+    ge_bq_dataset_id: str = "gemini_enterprise_data"
+    ge_identity_provider_type: str = "GSUITE"
+    ge_workforce_identity_pool: str = ""
+    ge_customer_domain: str = "mohanrajs.altostrat.com"
+    ge_app_access_group: str = ""
+    ge_app_group_members: str = "admin@mohanrajs.altostrat.com"
+    enable_common_connectors: bool = True
+    enable_agent_registration: bool = False
+    agent_id: str = "universal-skill-orchestrator"
+    agent_display_name: str = "Enterprise Skill Orchestrator"
+    agent_description: str = (
+        "Executes governed Parent Skills and Sub-Skills from the AI Skill Hub."
+    )
+    agent_reasoning_engine: str = ""
+    tf_state_bucket: str = ""
+    execution_mode: str = "PLAN_AND_WAIT"
+
+
+class IdentityProvisionRequest(pydantic.BaseModel):
+    """Request payload for Stack 01: Entra ID / Cloud Identity WIF & SAML."""
+
+    gcp_project_id: str = "mohandemo"
+    gcp_region: str = "us-central1"
+    gcp_org_id: str = "123456789012"
+    ge_location: str = "global"
+    cloud_identity_customer_id: str = "customers/C01234567"
+    primary_customer_domain: str = "mohanrajs.altostrat.com"
+    shared_identity_domain: str = "mohanrajs.altostrat.com"
+    m365_secret_id: str = "m365-connector-credentials"
+    m365_tenant_id: str = ""
+    m365_client_id: str = ""
+    m365_client_secret: str = ""
+    entra_group_filter: str = "startswith(mailNickname,'ge-')"
+    entra_to_app_group_mappings: str = ""
+    enable_cloud_identity_saml_sso: bool = True
+    saml_sso_profile_display_name: str = "Microsoft Entra ID SSO"
+    enable_workforce_pool_oidc: bool = False
+    workforce_pool_id: str = "entra-id-shared-pool"
+    workforce_provider_id: str = "entra-id-oidc-provider"
+    tf_state_bucket: str = ""
+    execution_mode: str = "PLAN_AND_WAIT"
+
+
+class M365ConnectorProvisionRequest(pydantic.BaseModel):
+    """Request payload for Stack 03: Microsoft 365 Data Connectors."""
+
+    gcp_project_id: str = "mohandemo"
+    gcp_region: str = "us-central1"
+    ge_location: str = "global"
+    m365_collection_prefix: str = "m365"
+    ge_app_id: str = ""
+    m365_secret_id: str = "m365-connector-credentials"
+    m365_tenant_id: str = ""
+    m365_client_id: str = ""
+    m365_client_secret: str = ""
+    m365_connector_mode: str = "FEDERATED"
+    enable_m365_actions: bool = True
+    enable_sharepoint_connector: bool = True
+    m365_sharepoint_instance_uri: str = "https://contoso.sharepoint.com"
+    enable_onedrive_connector: bool = True
+    m365_onedrive_instance_uri: str = "https://contoso-my.sharepoint.com"
+    enable_outlook_connector: bool = True
+    enable_teams_connector: bool = True
+    tf_state_bucket: str = ""
+    execution_mode: str = "PLAN_AND_WAIT"
+
+
+class ProvisioningApprovalRequest(pydantic.BaseModel):
+    """Request payload for approving or rejecting a planned Terraform job."""
+
+    notes: str = ""
+
+
+class ProvisioningJobItem(pydantic.BaseModel):
+    """Represents a persisted Terraform provisioning job and its plan/logs."""
+
+    job_id: str
+    stack_type: str
+    title: str
+    workspace_key: str
+    state_backend_type: str
+    state_bucket: str = ""
+    state_prefix: str = ""
+    execution_mode: str
+    status: str
+    initiated_by: str
+    approved_by: str = ""
+    sanitized_config: dict[str, Any] = pydantic.Field(default_factory=dict)
+    plan_summary: str = ""
+    log_lines: list[str] = pydantic.Field(default_factory=list)
+    outputs: dict[str, Any] = pydantic.Field(default_factory=dict)
+    error_message: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+
+class ProvisioningJobListResponse(pydantic.BaseModel):
+    """Response payload for GET /api/v1/admin/provisioning/jobs."""
+
+    items: list[ProvisioningJobItem]
+    total: int
+    active_workspace_locks: list[str] = pydantic.Field(default_factory=list)
+
+
+class SubSkillStepTrace(pydantic.BaseModel):
+    """Represents a single Sub-Skill execution step via GE :streamAssist."""
+
+    step_index: int
+    sub_skill_name: str
+    sub_skill_display_name: str
+    sub_skill_input: str
+    status: str = "COMPLETED"
+    stream_assist_endpoint: str
+    identity_mode: str = "USER_OAUTH_PASSTHROUGH"
+    output_summary: str
+    connectors_invoked: list[str] = pydantic.Field(default_factory=list)
+    latency_ms: int = 120
+
+
+class SkillOrchestrateRequest(pydantic.BaseModel):
+    """Request payload for invoking the Universal Skill Orchestrator Agent."""
+
+    skill_id: str
+    engine_id: str = ""
+    user_prompt: str = (
+        "Triage the P1 customer escalation email from Contoso Corp and verify "
+        "applicable SLA credit policy."
+    )
+    forwarded_oauth_token: str = ""
+
+
+class SkillOrchestrateResponse(pydantic.BaseModel):
+    """Response payload from the Universal Skill & Sub-Skill Orchestrator."""
+
+    orchestration_id: str
+    agent_name: str = "universal_skill_orchestrator"
+    skill_id: str
+    skill_display_name: str
+    engine_id: str
+    calling_user_email: str
+    identity_passthrough_mode: str
+    stream_assist_endpoint: str
+    is_composite_skill: bool = False
+    sub_skills_loaded: list[str] = pydantic.Field(default_factory=list)
+    sub_skill_traces: list[SubSkillStepTrace] = pydantic.Field(
+        default_factory=list
+    )
+    final_response: str
+    total_tokens_saved: int = 0
+    executed_at: str
+
+
+class SkillCatalogSeedResponse(pydantic.BaseModel):
+    """Response payload for seeding atomic sub-skills and composite skills."""
+
+    seeded_skills: list[str] = pydantic.Field(default_factory=list)
+    total_seeded: int = 0
+
+
+class GePinnedAgentPublishRequest(pydantic.BaseModel):
+    """Request payload for publishing Universal Orchestrator as Pinned Agent."""
+
+    engine_id: str = "service-desk-app-01"
+    display_name: str = "Enterprise Skill Orchestrator"
+    description: str = (
+        "Executes governed Parent Skills and Sub-Skills from the AI Skill Hub "
+        "using your Gemini Enterprise identity."
+    )
+    authorization_id: str = "ge-user-oauth-passthrough"
+    registration_mode: str = "adk"
+    default_pinned: bool = True
+
+
+class GePinnedAgentItem(pydantic.BaseModel):
+    """Represents a Pinned Assistant registered on a Gemini Enterprise App."""
+
+    agent_resource_name: str
+    engine_id: str
+    app_display_name: str
+    agent_id: str = "universal-skill-orchestrator"
+    display_name: str
+    description: str
+    registration_mode: str = "adk"
+    default_pinned: bool = True
+    authorization_resource: str
+    reasoning_engine: str
+    agents_cli_command: str
+    starter_prompts: list[str] = pydantic.Field(default_factory=list)
+    custom_placeholder_text: str = (
+        "Ask the Enterprise Skill Orchestrator to run a governed skill or "
+        "multi-step workflow..."
+    )
+    status: str = "PINNED_ACTIVE"
+    updated_at: str
+
+
+class GePinnedAgentListResponse(pydantic.BaseModel):
+    """Response payload for GET /api/v1/admin/ge-agents/registry."""
+
+    items: list[GePinnedAgentItem]
+    total: int
+
+
