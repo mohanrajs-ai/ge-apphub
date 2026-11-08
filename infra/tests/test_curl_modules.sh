@@ -46,11 +46,23 @@ test_payload_templates_and_ge_app_config() {
   assert_contains "${eng_payload_json}" "\"enableModelArmor\": true" "Rendered Engine payload enables Model Armor"
   assert_contains "${eng_payload_json}" "\"enableObservability\": true" "Rendered Engine payload enables Observability"
   assert_contains "${eng_payload_json}" "\"deep-research\": \"FEATURE_STATE_ON\"" "Rendered Engine payload enables Full Feature Matrix"
+  assert_contains "${eng_payload_json}" "\"agent-sharing\": \"FEATURE_STATE_OFF\"" "Rendered Engine payload disables Agent Sharing"
+  assert_contains "${eng_payload_json}" "\"allowAgentSharing\": false" "Rendered Engine sharingConfig disables Agent Sharing"
+  assert_contains "${eng_payload_json}" "\"skills\": \"FEATURE_STATE_ON\"" "Rendered Engine payload enables Skills"
+  assert_contains "${eng_payload_json}" "\"skill-sharing-admin-approval\": \"FEATURE_STATE_ON\"" "Rendered Engine payload enables Skill Sharing with Admin Approval"
+  assert_contains "${eng_payload_json}" "\"skillSharingPolicy\": \"ADMIN_APPROVAL_REQUIRED\"" "Rendered Engine sharingConfig enforces ADMIN_APPROVAL_REQUIRED for Skills"
+  assert_contains "${eng_payload_json}" "\"requireAdminApprovalForSkillSharing\": true" "Rendered Engine sharingConfig requires Admin Approval for Skill Sharing"
+  assert_contains "${eng_payload_json}" "\"projects\": \"FEATURE_STATE_ON\"" "Rendered Engine payload enables Projects"
+  assert_contains "${eng_payload_json}" "\"enableProjects\": true" "Rendered Engine sharingConfig enables Projects"
 
   widget_payload_json="$(render_widget_config_payload)"
   assert_contains "${widget_payload_json}" "\"enableAutocomplete\": true" "Rendered Widget payload enables Autocomplete"
   assert_contains "${widget_payload_json}" "\"enableQualityFeedback\": true" "Rendered Widget payload enables Feedback Config"
   assert_contains "${widget_payload_json}" "\"enableUserEventCollection\": true" "Rendered Widget payload enables User Event Collection"
+  assert_contains "${widget_payload_json}" "\"allowAgentSharing\": false" "Rendered Widget payload disables Agent Sharing"
+  assert_contains "${widget_payload_json}" "\"enableSkills\": true" "Rendered Widget payload enables Skills"
+  assert_contains "${widget_payload_json}" "\"requireAdminApprovalForSkillSharing\": true" "Rendered Widget payload requires Admin Approval for Skill Sharing"
+  assert_contains "${widget_payload_json}" "\"enableProjects\": true" "Rendered Widget payload enables Projects"
   assert_contains "${widget_payload_json}" "\"collectionComponents\"" "Rendered Widget payload includes Admin-Configured Connector Display Names"
 
   local group_json member_json

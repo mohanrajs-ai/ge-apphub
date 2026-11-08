@@ -50,6 +50,11 @@ render_engine_payload() {
     --arg tier "${GE_SEARCH_TIER:-SEARCH_TIER_ENTERPRISE}" \
     --arg featAgentGallery "${GE_FEATURE_AGENT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
+    --arg featAgentSharing "${GE_FEATURE_AGENT_SHARING:-FEATURE_STATE_OFF}" \
+    --arg featSkills "${GE_FEATURE_SKILLS:-FEATURE_STATE_ON}" \
+    --arg featSkillSharing "${GE_FEATURE_SKILL_SHARING:-FEATURE_STATE_ON}" \
+    --arg featSkillSharingApproval "${GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL:-FEATURE_STATE_ON}" \
+    --arg featProjects "${GE_FEATURE_PROJECTS:-FEATURE_STATE_ON}" \
     --arg featPromptGallery "${GE_FEATURE_PROMPT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featModelSelector "${GE_FEATURE_MODEL_SELECTOR:-FEATURE_STATE_ON}" \
     --arg featNotebookLm "${GE_FEATURE_NOTEBOOK_LM:-FEATURE_STATE_ON}" \
@@ -57,6 +62,13 @@ render_engine_payload() {
     --arg featPeopleSearch "${GE_FEATURE_PEOPLE_SEARCH:-FEATURE_STATE_ON}" \
     --arg featActions "${GE_FEATURE_ACTIONS:-FEATURE_STATE_ON}" \
     --arg featAudioOverview "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
+    --argjson allowAgentSharing "${GE_ALLOW_AGENT_SHARING:-false}" \
+    --arg agentSharingPolicy "${GE_AGENT_SHARING_POLICY:-SHARING_POLICY_DISABLED}" \
+    --argjson enableSkills "${GE_ENABLE_SKILLS:-true}" \
+    --arg skillSharingPolicy "${GE_SKILL_SHARING_APPROVAL_POLICY:-ADMIN_APPROVAL_REQUIRED}" \
+    --argjson requireAdminApprovalForSkills "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" \
+    --arg skillApproverGroup "${GE_SKILL_APPROVER_GROUP:-ge-platform-admins@${GE_CUSTOMER_DOMAIN:-example.com}}" \
+    --argjson enableProjects "${GE_ENABLE_PROJECTS:-true}" \
     --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
     --argjson enableKnowledgeCatalog "${GE_ENABLE_KNOWLEDGE_CATALOG:-true}" \
     --arg taxonomy "${GE_KNOWLEDGE_CATALOG_TAXONOMY:-enterprise-taxonomy}" \
@@ -81,6 +93,11 @@ render_engine_payload() {
       features: {
         "agent-gallery": $featAgentGallery,
         "no-code-agent-builder": $featNoCodeBuilder,
+        "agent-sharing": $featAgentSharing,
+        "skills": $featSkills,
+        "skill-sharing": $featSkillSharing,
+        "skill-sharing-admin-approval": $featSkillSharingApproval,
+        "projects": $featProjects,
         "prompt-gallery": $featPromptGallery,
         "model-selector": $featModelSelector,
         "notebook-lm": $featNotebookLm,
@@ -88,6 +105,15 @@ render_engine_payload() {
         "people-search": $featPeopleSearch,
         "actions": $featActions,
         "audio-overview": $featAudioOverview
+      },
+      sharingConfig: {
+        allowAgentSharing: $allowAgentSharing,
+        agentSharingPolicy: $agentSharingPolicy,
+        enableSkills: $enableSkills,
+        skillSharingPolicy: $skillSharingPolicy,
+        requireAdminApprovalForSkillSharing: $requireAdminApprovalForSkills,
+        skillApproverGroup: $skillApproverGroup,
+        enableProjects: $enableProjects
       },
       knowledgeGraphConfig: {
         enablePrivateKnowledgeGraph: $enablePkg,
@@ -228,6 +254,11 @@ render_widget_config_payload() {
     --argjson userEventDays "${GE_USER_EVENT_RETENTION_DAYS:-365}" \
     --argjson enablePersonalization "${GE_ENABLE_SEARCH_PERSONALIZATION:-true}" \
     --argjson enableWebGrounding "${GE_ENABLE_WEB_SEARCH_GROUNDING:-true}" \
+    --argjson allowAgentSharing "${GE_ALLOW_AGENT_SHARING:-false}" \
+    --argjson enableSkills "${GE_ENABLE_SKILLS:-true}" \
+    --arg skillSharingPolicy "${GE_SKILL_SHARING_APPROVAL_POLICY:-ADMIN_APPROVAL_REQUIRED}" \
+    --argjson requireAdminApprovalForSkills "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" \
+    --argjson enableProjects "${GE_ENABLE_PROJECTS:-true}" \
     --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
     --arg logoUri "${GE_APP_LOGO_URI:-}" \
     --arg faviconUri "${GE_APP_FAVICON_URI:-}" \
@@ -251,7 +282,12 @@ render_widget_config_payload() {
         enableUserEventCollection: $enableUserEvents,
         userEventRetentionDays: $userEventDays,
         enableSearchPersonalization: $enablePersonalization,
-        enableWebAppGrounding: $enableWebGrounding
+        enableWebAppGrounding: $enableWebGrounding,
+        allowAgentSharing: $allowAgentSharing,
+        enableSkills: $enableSkills,
+        skillSharingPolicy: $skillSharingPolicy,
+        requireAdminApprovalForSkillSharing: $requireAdminApprovalForSkills,
+        enableProjects: $enableProjects
       },
       collectionComponents: $collectionComponents
     }'
@@ -264,10 +300,10 @@ configure_engine_features_and_widget() {
   local engine_url="${base_v1alpha}/${col_parent}/engines/${GE_APP_ID}"
   local widget_url="${engine_url}/widgetConfigs/default_search_widget_config"
 
-  log_info "Configuring Engine Full Features, Knowledge Catalog, Private Knowledge Graph, Model Armor, Chat Retention & Observability on '${GE_APP_ID}'..."
+  log_info "Configuring Engine Full Features (Agent Sharing Disabled, Skills + Admin Approval Enabled, Projects Enabled), Knowledge Catalog, Private Knowledge Graph, Model Armor, Chat Retention & Observability on '${GE_APP_ID}'..."
   local eng_payload
   eng_payload="$(render_engine_payload)"
-  ge_curl_request "PATCH" "${engine_url}?updateMask=features,knowledgeGraphConfig,chatHistoryConfig,modelArmorConfig,observabilityConfig" "${eng_payload}" "true" >/dev/null || true
+  ge_curl_request "PATCH" "${engine_url}?updateMask=features,sharingConfig,knowledgeGraphConfig,chatHistoryConfig,modelArmorConfig,observabilityConfig" "${eng_payload}" "true" >/dev/null || true
 
   log_info "Configuring Widget Autocomplete, Feedback, User Event Collection, Logo & Admin Connector Display Names on '${GE_APP_ID}'..."
   local widget_payload

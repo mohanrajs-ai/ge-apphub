@@ -776,7 +776,7 @@ Every Cymbal departmental Gemini Enterprise App is instantiated from the **Maste
 | **12** | **Enable Knowledge Catalog** | `GE_ENABLE_KNOWLEDGE_CATALOG`, `GE_KNOWLEDGE_CATALOG_TAXONOMY` | `Engine.knowledgeGraphConfig.enableKnowledgeCatalog` | `true` (`cymbal-enterprise-taxonomy`) |
 | **13** | **Chat History Retention** | `GE_CHAT_HISTORY_RETENTION_DAYS`, `GE_CHAT_SESSION_TTL_SECONDS` | `Engine.chatHistoryConfig` & `Assistant.sessionTtl` | `90` days (`7776000s`) |
 | **14** | **Private Knowledge Graph (PKG)** | `GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH`, `GE_PKG_ENTITY_EXTRACTION_TYPES` | `Engine.knowledgeGraphConfig.enablePrivateKnowledgeGraph` & `WidgetConfig` | `true` (`PERSON,ORGANIZATION,PROJECT,ACRONYM,TOPIC`) |
-| **15** | **Full Feature Management Option** | `GE_FEATURE_AGENT_GALLERY`, `GE_FEATURE_NO_CODE_AGENT_BUILDER`, `GE_FEATURE_PROMPT_GALLERY`, `GE_FEATURE_MODEL_SELECTOR`, `GE_FEATURE_NOTEBOOK_LM`, `GE_FEATURE_DEEP_RESEARCH`, `GE_FEATURE_PEOPLE_SEARCH`, `GE_FEATURE_ACTIONS`, `GE_FEATURE_AUDIO_OVERVIEW` | `Engine.features` map | All 9 enterprise capabilities set to `FEATURE_STATE_ON` (configurable per app) |
+| **15** | **Full Feature Management & Sharing Governance** | `GE_FEATURE_AGENT_SHARING`, `GE_ALLOW_AGENT_SHARING`, `GE_FEATURE_SKILLS`, `GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL`, `GE_SKILL_SHARING_APPROVAL_POLICY`, `GE_FEATURE_PROJECTS`, `GE_FEATURE_AGENT_GALLERY`, `GE_FEATURE_NO_CODE_AGENT_BUILDER`, `GE_FEATURE_PROMPT_GALLERY`, `GE_FEATURE_MODEL_SELECTOR`, `GE_FEATURE_NOTEBOOK_LM`, `GE_FEATURE_DEEP_RESEARCH`, `GE_FEATURE_PEOPLE_SEARCH`, `GE_FEATURE_ACTIONS`, `GE_FEATURE_AUDIO_OVERVIEW` | `Engine.features` + `Engine.sharingConfig` + `WidgetConfig.uiSettings` | **Agent Sharing Disabled** (`FEATURE_STATE_OFF`, `allowAgentSharing: false`), **Skills Enabled** (`FEATURE_STATE_ON`), **Skill Sharing with Admin Approval** (`ADMIN_APPROVAL_REQUIRED` via `ge-platform-admins@cymbal.com`), **Projects Enabled** (`FEATURE_STATE_ON`), plus all 9 core features `FEATURE_STATE_ON` |
 | **16** | **Observability Options** | `GE_ENABLE_OBSERVABILITY`, `GE_OBSERVABILITY_AUDIT_LOGGING`, `GE_OBSERVABILITY_QUERY_RESPONSE_LOGGING`, `GE_OBSERVABILITY_LATENCY_METRICS`, `GE_OBSERVABILITY_BQ_DATASET` | `Engine.observabilityConfig` + BigQuery Export (`cymbal_ge_observability`) | Full audit logging, query/response logging, latency metrics & BigQuery analytics export enabled |
 
 ---
@@ -817,6 +817,11 @@ for SPEC in \
     --enable-model-armor true \
     --enable-knowledge-catalog true \
     --enable-pkg true \
+    --allow-agent-sharing false \
+    --enable-skills true \
+    --skill-sharing-policy ADMIN_APPROVAL_REQUIRED \
+    --skill-approver-group "ge-platform-admins@cymbal.com" \
+    --enable-projects true \
     --dry-run
 
   # 2. Apply full 16-point App, Identity, Connector Display Names, Widget, Model Armor & Observability config
@@ -834,7 +839,12 @@ for SPEC in \
     --enable-web-grounding true \
     --enable-model-armor true \
     --enable-knowledge-catalog true \
-    --enable-pkg true
+    --enable-pkg true \
+    --allow-agent-sharing false \
+    --enable-skills true \
+    --skill-sharing-policy ADMIN_APPROVAL_REQUIRED \
+    --skill-approver-group "ge-platform-admins@cymbal.com" \
+    --enable-projects true
 done
 ```
 

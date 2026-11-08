@@ -66,6 +66,11 @@ ENABLE_WEB_GROUNDING="true"
 ENABLE_MODEL_ARMOR="true"
 ENABLE_KNOWLEDGE_CATALOG="true"
 ENABLE_PKG="true"
+ALLOW_AGENT_SHARING="false"
+ENABLE_SKILLS="true"
+SKILL_SHARING_POLICY="ADMIN_APPROVAL_REQUIRED"
+SKILL_APPROVER_GROUP=""
+ENABLE_PROJECTS="true"
 RENDER_ONLY="false"
 DRY_RUN="false"
 
@@ -75,7 +80,7 @@ while [[ $# -gt 0 ]]; do
       GE_APP_ID="$2"
       shift 2
       ;;
-    --app-display-name)
+    --app-display-name|--display-name)
       GE_APP_DISPLAY_NAME="$2"
       shift 2
       ;;
@@ -83,23 +88,23 @@ while [[ $# -gt 0 ]]; do
       CUSTOMER_NAME="$2"
       shift 2
       ;;
-    --customer-company-name)
+    --customer-company-name|--company-name)
       CUSTOMER_COMPANY_NAME="$2"
       shift 2
       ;;
-    --customer-domain)
+    --customer-domain|--domain)
       CUSTOMER_DOMAIN="$2"
       shift 2
       ;;
-    --gcp-project-id)
+    --gcp-project-id|--project-id)
       GCP_PROJECT_ID="$2"
       shift 2
       ;;
-    --gcp-region)
+    --gcp-region|--region)
       GCP_REGION="$2"
       shift 2
       ;;
-    --ge-location)
+    --ge-location|--location)
       GE_LOCATION="$2"
       shift 2
       ;;
@@ -143,6 +148,26 @@ while [[ $# -gt 0 ]]; do
       ENABLE_PKG="$2"
       shift 2
       ;;
+    --allow-agent-sharing)
+      ALLOW_AGENT_SHARING="$2"
+      shift 2
+      ;;
+    --enable-skills)
+      ENABLE_SKILLS="$2"
+      shift 2
+      ;;
+    --skill-sharing-policy)
+      SKILL_SHARING_POLICY="$2"
+      shift 2
+      ;;
+    --skill-approver-group)
+      SKILL_APPROVER_GROUP="$2"
+      shift 2
+      ;;
+    --enable-projects)
+      ENABLE_PROJECTS="$2"
+      shift 2
+      ;;
     --render-only)
       RENDER_ONLY="true"
       shift 1
@@ -176,6 +201,10 @@ if [[ -z "${GE_ASSISTANT_SYSTEM_INSTRUCTION}" ]]; then
   GE_ASSISTANT_SYSTEM_INSTRUCTION="You are the official ${GE_APP_DISPLAY_NAME} for ${CUSTOMER_COMPANY_NAME} (${CUSTOMER_DOMAIN}). Always ground your answers in verified ${CUSTOMER_COMPANY_NAME} SharePoint, OneDrive, Outlook, Microsoft Teams, and Enterprise Knowledge data stores while strictly honoring user ACLs and Model Armor safety policies."
 fi
 
+if [[ -z "${SKILL_APPROVER_GROUP}" ]]; then
+  SKILL_APPROVER_GROUP="ge-platform-admins@${CUSTOMER_DOMAIN}"
+fi
+
 OUTPUT_ENV_FILE="${CONFIGS_DIR}/${GE_APP_ID}.env"
 WORKSPACE_KEY="app-${GE_LOCATION}-${GE_APP_ID}"
 
@@ -187,6 +216,9 @@ echo " Customer          : ${CUSTOMER_COMPANY_NAME} (${CUSTOMER_DOMAIN})"
 echo " GCP Project       : ${GCP_PROJECT_ID} (${GE_LOCATION})"
 echo " Isolated Workspace: ${WORKSPACE_KEY}"
 echo " Access Group      : ${GE_APP_ACCESS_GROUP}"
+echo " Agent Sharing     : ${ALLOW_AGENT_SHARING} (Disabled by default)"
+echo " Skills & Approval : ${ENABLE_SKILLS} (${SKILL_SHARING_POLICY} via ${SKILL_APPROVER_GROUP})"
+echo " Projects          : ${ENABLE_PROJECTS}"
 echo " Output Config     : ${OUTPUT_ENV_FILE}"
 echo "=================================================================="
 
@@ -195,7 +227,8 @@ python3 - "${TEMPLATE_FILE}" "${OUTPUT_ENV_FILE}" \
   "${GE_APP_ID}" "${GE_APP_DISPLAY_NAME}" "${CUSTOMER_NAME}" "${CUSTOMER_COMPANY_NAME}" \
   "${CUSTOMER_DOMAIN}" "${CLOUD_IDENTITY_CUSTOMER_ID}" "${GE_APP_ACCESS_GROUP}" \
   "${GE_ASSISTANT_SYSTEM_INSTRUCTION}" "${LOGO_URI}" "${CHAT_RETENTION_DAYS}" \
-  "${ENABLE_WEB_GROUNDING}" "${ENABLE_MODEL_ARMOR}" "${ENABLE_KNOWLEDGE_CATALOG}" "${ENABLE_PKG}" <<'PYEOF'
+  "${ENABLE_WEB_GROUNDING}" "${ENABLE_MODEL_ARMOR}" "${ENABLE_KNOWLEDGE_CATALOG}" "${ENABLE_PKG}" \
+  "${ALLOW_AGENT_SHARING}" "${ENABLE_SKILLS}" "${SKILL_SHARING_POLICY}" "${SKILL_APPROVER_GROUP}" "${ENABLE_PROJECTS}" <<'PYEOF'
 import sys
 
 (
@@ -220,6 +253,11 @@ import sys
     enable_ma,
     enable_kc,
     enable_pkg,
+    allow_agent_sharing,
+    enable_skills,
+    skill_sharing_policy,
+    skill_approver_group,
+    enable_projects,
 ) = sys.argv
 
 with open(tmpl_path, "r", encoding="utf-8") as f:
@@ -254,6 +292,27 @@ content = content.replace('GE_ENABLE_WEB_SEARCH_GROUNDING="true"', f'GE_ENABLE_W
 content = content.replace('GE_ENABLE_MODEL_ARMOR="true"', f'GE_ENABLE_MODEL_ARMOR="{enable_ma}"')
 content = content.replace('GE_ENABLE_KNOWLEDGE_CATALOG="true"', f'GE_ENABLE_KNOWLEDGE_CATALOG="{enable_kc}"')
 content = content.replace('GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH="true"', f'GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH="{enable_pkg}"')
+
+feat_agent_sharing = "FEATURE_STATE_ON" if allow_agent_sharing.lower() == "true" else "FEATURE_STATE_OFF"
+agent_policy = "SHARING_POLICY_ENABLED" if allow_agent_sharing.lower() == "true" else "SHARING_POLICY_DISABLED"
+feat_skills = "FEATURE_STATE_ON" if enable_skills.lower() == "true" else "FEATURE_STATE_OFF"
+feat_skill_sharing = "FEATURE_STATE_ON" if skill_sharing_policy != "DISABLED" else "FEATURE_STATE_OFF"
+feat_skill_approval = "FEATURE_STATE_ON" if skill_sharing_policy == "ADMIN_APPROVAL_REQUIRED" else "FEATURE_STATE_OFF"
+req_admin_approval = "true" if skill_sharing_policy == "ADMIN_APPROVAL_REQUIRED" else "false"
+feat_projects = "FEATURE_STATE_ON" if enable_projects.lower() == "true" else "FEATURE_STATE_OFF"
+
+content = content.replace('GE_FEATURE_AGENT_SHARING="FEATURE_STATE_OFF"', f'GE_FEATURE_AGENT_SHARING="{feat_agent_sharing}"')
+content = content.replace('GE_ALLOW_AGENT_SHARING="false"', f'GE_ALLOW_AGENT_SHARING="{allow_agent_sharing.lower()}"')
+content = content.replace('GE_AGENT_SHARING_POLICY="SHARING_POLICY_DISABLED"', f'GE_AGENT_SHARING_POLICY="{agent_policy}"')
+content = content.replace('GE_FEATURE_SKILLS="FEATURE_STATE_ON"', f'GE_FEATURE_SKILLS="{feat_skills}"')
+content = content.replace('GE_ENABLE_SKILLS="true"', f'GE_ENABLE_SKILLS="{enable_skills.lower()}"')
+content = content.replace('GE_FEATURE_SKILL_SHARING="FEATURE_STATE_ON"', f'GE_FEATURE_SKILL_SHARING="{feat_skill_sharing}"')
+content = content.replace('GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL="FEATURE_STATE_ON"', f'GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL="{feat_skill_approval}"')
+content = content.replace('GE_SKILL_SHARING_APPROVAL_POLICY="ADMIN_APPROVAL_REQUIRED"', f'GE_SKILL_SHARING_APPROVAL_POLICY="{skill_sharing_policy}"')
+content = content.replace('GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING="true"', f'GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING="{req_admin_approval}"')
+content = content.replace(f'GE_SKILL_APPROVER_GROUP="ge-platform-admins@{domain}"', f'GE_SKILL_APPROVER_GROUP="{skill_approver_group}"')
+content = content.replace('GE_FEATURE_PROJECTS="FEATURE_STATE_ON"', f'GE_FEATURE_PROJECTS="{feat_projects}"')
+content = content.replace('GE_ENABLE_PROJECTS="true"', f'GE_ENABLE_PROJECTS="{enable_projects.lower()}"')
 
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(content)
