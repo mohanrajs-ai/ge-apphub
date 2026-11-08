@@ -345,9 +345,142 @@ If Cymbal's identity team prefers manual UI clicks instead of Option 0A.2-A or O
 
 ---
 
-## Phase 0B: Google Admin Console Configuration (`admin.google.com`)
+## Phase 0B: Google Admin Console & Cloud Identity Configuration (`deploy_google_admin_bootstrap.sh` or `admin.google.com`)
 
-### Step 0B.1: Retrieve Cymbal's Cloud Identity Customer ID & Verify `cymbal.com`
+> [!TIP]
+> **Full Automation Available (`infra/deploy_google_admin_bootstrap.sh`):** You do **not** have to manually log into `admin.google.com` to look up Cymbal's Customer ID, copy-paste DNS TXT verification tokens, or assign the SAML SSO profile! Run [`infra/deploy_google_admin_bootstrap.sh`](../infra/deploy_google_admin_bootstrap.sh) (Option 0B-A below) to auto-discover `CLOUD_IDENTITY_CUSTOMER_ID`, `GCP_ORG_ID`, and `SAML_TARGET_ORG_UNIT`, automatically register and verify `cymbal.com` via the Google Site Verification API + Cloud DNS, verify Admin API readiness, assign the Inbound SAML SSO Profile to Cymbal's Root Organizational Unit, and auto-generate `infra/configs/cymbal-identity.env`.
+
+---
+
+### Option 0B-A (Recommended): 1-Command Automated Google Admin & Domain Bootstrap (`deploy_google_admin_bootstrap.sh`)
+
+[`infra/deploy_google_admin_bootstrap.sh`](../infra/deploy_google_admin_bootstrap.sh) automates both **Step 0B.1** and **Step 0B.2** in a single command:
+1. **[Step 0B.1a — Auto-Discovery]** Queries `gcloud organizations list` and Admin SDK Directory API (`GET /admin/directory/v1/customers/my_customer` & `/orgunits`) to automatically resolve:
+   - `GCP_ORG_ID` (`organizations/<id>`)
+   - `CLOUD_IDENTITY_CUSTOMER_ID` (`customers/C0xxxxxxx`)
+   - `SAML_TARGET_ORG_UNIT` (`orgUnits/03ph8a2z...`)
+2. **[Step 0B.1b — Automated Domain Registration, Cloud DNS TXT & Site Verification]**
+   - Checks/registers `cymbal.com` in Google Admin Directory API (`POST /admin/directory/v1/customer/my_customer/domains`).
+   - Requests the `google-site-verification=...` token via Google Site Verification API (`POST https://www.googleapis.com/siteVerification/v1/token`).
+   - Automatically provisions the `@ TXT "google-site-verification=..."` record in Cloud DNS (`--dns-zone-name "cymbal-com-zone"`) and triggers `POST https://www.googleapis.com/siteVerification/v1/webResource?verificationMethod=DNS_TXT` to mark `cymbal.com` as **Verified** in `admin.google.com`.
+3. **[Step 0B.2 — Admin API Verification, SAML Profile Assignment & Config Generation]**
+   - Enables `admin.googleapis.com`, `cloudidentity.googleapis.com`, `siteverification.googleapis.com`, and `dns.googleapis.com`.
+   - Verifies Cloud Identity Groups API readiness (`HTTP 200`).
+   - Creates/updates the **Cloud Identity Inbound SAML SSO Profile** (`CYMBAL Microsoft Entra ID SSO`), uploads `infra/configs/cymbal-entra-saml.cer`, and assigns SAML SSO to Cymbal's Root Organizational Unit (`POST https://cloudidentity.googleapis.com/v1/inboundSsoAssignments`).
+   - Auto-generates `infra/configs/cymbal-identity.env` ready for Phase 1.
+
+```bash
+cd /Users/mohanrajs/aops/geapphub/infra
+
+# 1. Authenticate with Super Admin / GCP Organization Admin credentials
+gcloud auth login admin@cymbal.com
+gcloud auth application-default login
+
+# 2. Preview Phase 0B in Dry-Run Mode
+./deploy_google_admin_bootstrap.sh \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
+  --dns-zone-name "cymbal-com-zone" \
+  --dry-run
+
+# 3. Execute Phase 0B Automation
+./deploy_google_admin_bootstrap.sh \
+  --customer-name "cymbal" \
+  --customer-domain "cymbal.com" \
+  --gcp-project-id "cymbal-ge-prod" \
+  --entra-tenant-id "<cymbal-entra-tenant-uuid>" \
+  --dns-zone-name "cymbal-com-zone"
+```
+
+---
+
+### Option 0B-B: Standalone CLI / REST API Commands for Step 0B.1 & Step 0B.2
+
+If you want to run each Phase 0B sub-step individually via `gcloud` and `curl`:
+
+#### Step 0B.1 (Automated CLI): Auto-Discover Customer ID & Verify `cymbal.com` via Site Verification API
+```bash
+export CLOUDSDK_METRICS_ENVIRONMENT=geapphub
+export GCP_PROJECT_ID="cymbal-ge-prod"
+export CUSTOMER_DOMAIN="cymbal.com"
+export DNS_ZONE_NAME="cymbal-com-zone"
+
+# 1. Enable Admin SDK, Cloud Identity, Site Verification & Cloud DNS APIs
+gcloud services enable \
+  admin.googleapis.com \
+  cloudidentity.googleapis.com \
+  siteverification.googleapis.com \
+  dns.googleapis.com \
+  --project="${GCP_PROJECT_ID}"
+
+GCP_TOKEN="$(gcloud auth print-access-token)"
+
+# 2. Auto-discover GCP_ORG_ID & CLOUD_IDENTITY_CUSTOMER_ID (customers/C0xxxxxxx)
+read -r GCP_ORG_ID DIRECTORY_CUSTOMER_ID < <(
+  gcloud organizations list \
+    --filter="displayName:${CUSTOMER_DOMAIN}" \
+    --format="value(name.basename(),owner.directoryCustomerId)"
+)
+export CLOUD_IDENTITY_CUSTOMER_ID="customers/${DIRECTORY_CUSTOMER_ID}"
+echo "Discovered GCP_ORG_ID=${GCP_ORG_ID}, CLOUD_IDENTITY_CUSTOMER_ID=${CLOUD_IDENTITY_CUSTOMER_ID}"
+
+# 3. Register cymbal.com in Google Admin Directory (idempotent if already primary/secondary domain)
+curl -sS -X POST "https://admin.googleapis.com/admin/directory/v1/customer/${DIRECTORY_CUSTOMER_ID}/domains" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{\"domainName\": \"${CUSTOMER_DOMAIN}\"}"
+
+# 4. Request DNS_TXT Verification Token via Google Site Verification API
+VERIFY_TOKEN="$(curl -sS -X POST "https://www.googleapis.com/siteVerification/v1/token" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{
+    \"site\": {\"type\": \"INET_DOMAIN\", \"identifier\": \"${CUSTOMER_DOMAIN}\"},
+    \"verificationMethod\": \"DNS_TXT\"
+  }" | jq -r '.token')"
+
+# 5. Provision TXT Verification Record in Cloud DNS & Trigger Verification
+gcloud dns record-sets create "${CUSTOMER_DOMAIN}." \
+  --project="${GCP_PROJECT_ID}" \
+  --zone="${DNS_ZONE_NAME}" \
+  --type="TXT" \
+  --ttl="60" \
+  --rrdatas="\"${VERIFY_TOKEN}\""
+
+curl -sS -X POST "https://www.googleapis.com/siteVerification/v1/webResource?verificationMethod=DNS_TXT" \
+  -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  -H "Content-Type: application/json" \
+  -d "{\"site\": {\"type\": \"INET_DOMAIN\", \"identifier\": \"${CUSTOMER_DOMAIN}\"}}"
+```
+
+#### Step 0B.2 (Automated CLI): Verify Admin API Access & Assign SAML SSO to Root Org Unit
+```bash
+# 1. Verify Cloud Identity Groups API & Admin SDK Directory API access
+curl -sS -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" | jq .
+
+# 2. Auto-discover Cymbal's Root Organizational Unit ID (orgUnits/...)
+ROOT_OU_ID="$(curl -sS -H "Authorization: Bearer ${GCP_TOKEN}" \
+  -H "x-goog-user-project: ${GCP_PROJECT_ID}" \
+  "https://admin.googleapis.com/admin/directory/v1/customer/${DIRECTORY_CUSTOMER_ID}/orgunits?type=all" \
+  | jq -r '.organizationUnits[] | select(.parentOrgUnitPath == "/" or .orgUnitPath == "/") | .orgUnitId | sub("^id:"; "orgUnits/")' | head -n 1)"
+
+echo "Discovered Root Org Unit: ${ROOT_OU_ID}"
+```
+
+---
+
+### Option 0B-C: Manual `admin.google.com` Portal UI Reference (Fallback)
+
+If Cymbal's Google Workspace / Cloud Identity Super Admin prefers manual UI verification in **[Google Admin Console (`admin.google.com`)](https://admin.google.com)**:
+
+#### Step 0B.1 (Manual UI): Retrieve Cymbal's Cloud Identity Customer ID & Verify `cymbal.com`
 1. Sign in to **[Google Admin Console (`admin.google.com`)](https://admin.google.com)** as a Super Admin (`admin@cymbal.com`).
 2. **Copy the Customer ID:**
    - Navigate to **Account -> Account settings -> Profile**.
@@ -357,7 +490,7 @@ If Cymbal's identity team prefers manual UI clicks instead of Option 0A.2-A or O
    - Ensure `cymbal.com` shows **Verified** (Primary or Secondary domain).
    - If `cymbal.com` is not yet verified, click **Add a domain**, enter `cymbal.com`, choose **TXT verification record**, copy the `google-site-verification=...` token, add it to Cymbal's DNS zone (or set `MANAGE_DNS_VERIFICATION_RECORD="true"` in `configs/cymbal-identity.env`), and click **Verify**.
 
-### Step 0B.2: Enable Admin API Access for Automated Group & User Sync
+#### Step 0B.2 (Manual UI): Enable Admin API Access for Automated Group & User Sync
 1. In **[admin.google.com](https://admin.google.com)**, navigate to **Security -> Access and data control -> API controls**.
 2. Ensure **Enable API access** is checked so Cloud Identity Groups API and Admin SDK Directory API calls from Stack 01 succeed.
 
