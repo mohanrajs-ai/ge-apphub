@@ -93,7 +93,7 @@ render_engine_payload() {
       industryVertical: $vertical,
       dataStoreIds: (([$dsId] + $commonDs) | map(select(length > 0)) | unique),
       commonConfig: {companyName: $company},
-      searchEngineConfig: {searchTier: $tier, searchAddOns: ["SEARCH_ADD_ON_LLM"]},
+      searchEngineConfig: {searchTier: $tier, searchAddOns: ["SEARCH_ADD_ON_LLM"], requiredSubscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"},
       features: {
         "agent-gallery": $featAgentGallery,
         "no-code-agent-builder": $featNoCodeBuilder,
@@ -158,6 +158,14 @@ render_engine_api_payload() {
   if [[ "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" == "false" ]]; then
     sharing_without_approval="FEATURE_STATE_ON"
   fi
+  local feat_skills="FEATURE_STATE_ON"
+  if [[ "${GE_ENABLE_SKILLS:-true}" == "false" ]]; then
+    feat_skills="FEATURE_STATE_OFF"
+  fi
+  local disable_projects="FEATURE_STATE_OFF"
+  if [[ "${GE_ENABLE_PROJECTS:-true}" == "false" ]]; then
+    disable_projects="FEATURE_STATE_ON"
+  fi
   jq -n \
     --arg displayName "${GE_APP_DISPLAY_NAME}" \
     --arg solutionType "${GE_SOLUTION_TYPE:-SOLUTION_TYPE_SEARCH}" \
@@ -171,12 +179,13 @@ render_engine_api_payload() {
     --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
     --arg disableAgentSharing "${disable_agent_sharing}" \
     --arg sharingWithoutApproval "${sharing_without_approval}" \
+    --arg featSkills "${feat_skills}" \
+    --arg disableProjects "${disable_projects}" \
     --arg featPromptGallery "${GE_FEATURE_PROMPT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featModelSelector "${GE_FEATURE_MODEL_SELECTOR:-FEATURE_STATE_ON}" \
     --arg featNotebookLm "${GE_FEATURE_NOTEBOOK_LM:-FEATURE_STATE_ON}" \
     --arg featPeopleSearch "${GE_FEATURE_PEOPLE_SEARCH:-FEATURE_STATE_ON}" \
     --arg featAudio "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
-    --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
     --argjson enableObs "${GE_ENABLE_OBSERVABILITY:-true}" \
     '{
       displayName: $displayName,
@@ -185,8 +194,12 @@ render_engine_api_payload() {
       industryVertical: $vertical,
       dataStoreIds: (([$dsId] + $commonDs) | map(select(length > 0)) | unique),
       commonConfig: {companyName: $company},
-      searchEngineConfig: {searchTier: $tier, searchAddOns: ["SEARCH_ADD_ON_LLM"]},
+      searchEngineConfig: {searchTier: $tier, searchAddOns: ["SEARCH_ADD_ON_LLM"], requiredSubscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"},
       features: {
+        "skills": $featSkills,
+        "skill-sharing": $featSkills,
+        "skill-sharing-without-admin-approval": $sharingWithoutApproval,
+        "disable-projects": $disableProjects,
         "agent-gallery": $featAgentGallery,
         "no-code-agent-builder": $featNoCodeBuilder,
         "disable-agent-sharing": $disableAgentSharing,
@@ -203,10 +216,8 @@ render_engine_api_payload() {
         "personalization-memory": "FEATURE_STATE_ON",
         "cross-product-intelligence": "FEATURE_STATE_ON",
         "disable-canvas": "FEATURE_STATE_OFF",
-        "session-sharing": "FEATURE_STATE_OFF"
-      },
-      knowledgeGraphConfig: {
-        enablePrivateKnowledgeGraph: $enablePkg
+        "session-sharing": "FEATURE_STATE_OFF",
+        "in-app-notifications": "FEATURE_STATE_ON"
       },
       observabilityConfig: {
         observabilityEnabled: $enableObs
@@ -376,21 +387,40 @@ configure_engine_features_and_widget() {
   if [[ "${GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING:-true}" == "false" ]]; then
     sharing_without_approval="FEATURE_STATE_ON"
   fi
+  local feat_skills="FEATURE_STATE_ON"
+  if [[ "${GE_ENABLE_SKILLS:-true}" == "false" ]]; then
+    feat_skills="FEATURE_STATE_OFF"
+  fi
+  local disable_projects="FEATURE_STATE_OFF"
+  if [[ "${GE_ENABLE_PROJECTS:-true}" == "false" ]]; then
+    disable_projects="FEATURE_STATE_ON"
+  fi
   local eng_patch_payload
   eng_patch_payload="$(jq -n \
     --arg featAgentGallery "${GE_FEATURE_AGENT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featNoCodeBuilder "${GE_FEATURE_NO_CODE_AGENT_BUILDER:-FEATURE_STATE_ON}" \
     --arg disableAgentSharing "${disable_agent_sharing}" \
     --arg sharingWithoutApproval "${sharing_without_approval}" \
+    --arg featSkills "${feat_skills}" \
+    --arg disableProjects "${disable_projects}" \
     --arg featPromptGallery "${GE_FEATURE_PROMPT_GALLERY:-FEATURE_STATE_ON}" \
     --arg featModelSelector "${GE_FEATURE_MODEL_SELECTOR:-FEATURE_STATE_ON}" \
     --arg featNotebookLm "${GE_FEATURE_NOTEBOOK_LM:-FEATURE_STATE_ON}" \
     --arg featPeopleSearch "${GE_FEATURE_PEOPLE_SEARCH:-FEATURE_STATE_ON}" \
     --arg featAudio "${GE_FEATURE_AUDIO_OVERVIEW:-FEATURE_STATE_ON}" \
-    --argjson enablePkg "${GE_ENABLE_PRIVATE_KNOWLEDGE_GRAPH:-true}" \
+    --arg tier "${GE_SEARCH_TIER:-SEARCH_TIER_ENTERPRISE}" \
     --argjson enableObs "${GE_ENABLE_OBSERVABILITY:-true}" \
     '{
+      searchEngineConfig: {
+        searchTier: $tier,
+        searchAddOns: ["SEARCH_ADD_ON_LLM"],
+        requiredSubscriptionTier: "SUBSCRIPTION_TIER_SEARCH_AND_ASSISTANT"
+      },
       features: {
+        "skills": $featSkills,
+        "skill-sharing": $featSkills,
+        "skill-sharing-without-admin-approval": $sharingWithoutApproval,
+        "disable-projects": $disableProjects,
         "agent-gallery": $featAgentGallery,
         "no-code-agent-builder": $featNoCodeBuilder,
         "disable-agent-sharing": $disableAgentSharing,
@@ -407,16 +437,14 @@ configure_engine_features_and_widget() {
         "personalization-memory": "FEATURE_STATE_ON",
         "cross-product-intelligence": "FEATURE_STATE_ON",
         "disable-canvas": "FEATURE_STATE_OFF",
-        "session-sharing": "FEATURE_STATE_OFF"
-      },
-      knowledgeGraphConfig: {
-        enablePrivateKnowledgeGraph: $enablePkg
+        "session-sharing": "FEATURE_STATE_OFF",
+        "in-app-notifications": "FEATURE_STATE_ON"
       },
       observabilityConfig: {
         observabilityEnabled: $enableObs
       }
     }')"
-  ge_curl_request "PATCH" "${engine_url}?updateMask=features,knowledgeGraphConfig,observabilityConfig" "${eng_patch_payload}" "true" >/dev/null || true
+  ge_curl_request "PATCH" "${engine_url}?updateMask=searchEngineConfig,features,observabilityConfig" "${eng_patch_payload}" "true" >/dev/null || true
 
   log_info "Configuring Widget Autocomplete, Feedback, User Event Collection, Logo & Admin Connector Display Names on '${GE_APP_ID}'..."
   local widget_patch_payload

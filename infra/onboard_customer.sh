@@ -38,6 +38,7 @@ GCP_REGION="us-central1"
 ENTRA_TENANT_ID=""
 DNS_PROJECT_ID=""
 DNS_ZONE_NAME=""
+MEMBERS_CSV=""
 ENTRA_MODE="terraform"
 DRY_RUN="false"
 
@@ -69,6 +70,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --dns-zone-name)
       DNS_ZONE_NAME="$2"
+      shift 2
+      ;;
+    --members-csv)
+      MEMBERS_CSV="$2"
       shift 2
       ;;
     --entra-mode)
@@ -195,6 +200,19 @@ else
   TF_WORKSPACE_OVERRIDE="id-${CUSTOMER_NAME}-com" "${SCRIPT_DIR}/deploy_identity.sh" \
     --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \
     --dns-project-id "${DNS_PROJECT_ID}"
+fi
+
+# ------------------------------------------------------------------------------
+# Phase 1B: Declarative CSV Group Membership & GE License Sync
+# ------------------------------------------------------------------------------
+RESOLVED_MEMBERS_CSV="${MEMBERS_CSV:-${CONFIGS_DIR}/${CUSTOMER_NAME}-group-memberships.csv}"
+if [[ -f "${RESOLVED_MEMBERS_CSV}" ]]; then
+  echo ""
+  echo ">>> [Phase 1B] Synchronizing Group Memberships & GE Licenses from ${RESOLVED_MEMBERS_CSV}..."
+  "${SCRIPT_DIR}/sync_group_members_from_csv.sh" \
+    --csv "${RESOLVED_MEMBERS_CSV}" \
+    --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \
+    ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
 fi
 
 # ------------------------------------------------------------------------------

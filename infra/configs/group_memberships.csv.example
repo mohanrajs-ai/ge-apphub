@@ -1,0 +1,18 @@
+# ==============================================================================
+# Declarative Group & Gemini Enterprise License Membership CSV Template
+# ==============================================================================
+# Columns:
+#   group_email       : Cloud Identity / Entra group email (or mailNickname prefix)
+#   user_email        : User email / UPN (or username prefix on SHARED_IDENTITY_DOMAIN)
+#   role              : Cloud Identity group role (MEMBER, MANAGER, OWNER) [default: MEMBER]
+#   sync_entra        : Also add user to matching Entra ID Security Group (true/false) [default: true]
+#   assign_ge_license : Also assign active Gemini Enterprise license in UserStore (true/false) [default: true]
+# ==============================================================================
+group_email,user_email,role,sync_entra,assign_ge_license
+ge-platform-admins@example.com,admin@example.com,OWNER,false,true
+ge-skill-developers@example.com,alexw@example.com,MEMBER,true,true
+ge-service-desk-users@example.com,diegos@example.com,MEMBER,true,true
+ge-service-desk-users@example.com,pradeepg@example.com,MEMBER,true,true
+ge-finance-users@example.com,henriettam@example.com,MEMBER,true,true
+ge-hr-users@example.com,lidiah@example.com,MEMBER,true,true
+ge-marketing-users@example.com,meganb@example.com,MEMBER,true,true
