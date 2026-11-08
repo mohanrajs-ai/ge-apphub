@@ -91,7 +91,7 @@ sequenceDiagram
 | **Phase 0C** | Enable 13 GCP APIs & create versioned remote Terraform state bucket (`gs://cymbal-ge-tfstate`) | [`infra/onboard_customer.sh`](../infra/onboard_customer.sh) | **100% Automated** |
 | **Phase 1 — Step 1.1 & 1.2** | Entra -> Cloud Identity 1:1 Group & Transitive Member Sync, Per-App Group Nesting & SAML SSO Verification | [`infra/deploy_identity.sh`](../infra/deploy_identity.sh) + [`infra/stacks/01-identity-foundation/main.tf`](../infra/stacks/01-identity-foundation/main.tf) | **100% Automated** |
 | **Phase 2** | Shared M365 Connectors (`cymbal-m365-sp`, `cymbal-m365-od`, `cymbal-m365-ol`, `cymbal-m365-teams`) in `FEDERATED` + `ACTIONS` mode | [`infra/deploy_m365.sh`](../infra/deploy_m365.sh) + [`infra/stacks/03-m365-connectors/main.tf`](../infra/stacks/03-m365-connectors/main.tf) | **100% Automated** |
-| **Phase 3** | Departmental GE Apps (`cymbal-dev-sandbox-app`, `cymbal-service-desk-app`, `cymbal-finance-app`, `cymbal-hr-app`) with isolated workspaces (`app-global-<id>`) & `geConnectorAuthUser` IAM | [`infra/deploy.sh`](../infra/deploy.sh) + [`infra/stacks/02-ge-app-instance/main.tf`](../infra/stacks/02-ge-app-instance/main.tf) | **100% Automated** |
+| **Phase 3** | Departmental GE Apps (`cymbal-dev-sandbox-app`, `cymbal-service-desk-app`, `cymbal-finance-app`, `cymbal-hr-app`) generated from the **16-Point Master App Template** (Per-App Knowledge Sources Disabled, Google Search + Shared M365 Connectors Only, Agent Sharing Disabled, Skills + Admin Approval Enabled, Projects Enabled, Autocomplete, Feedback, User Events, Logo, Model Armor, Knowledge Catalog, PKG, Chat Retention & Observability) | [`infra/create_app_from_template.sh`](../infra/create_app_from_template.sh) + [`infra/configs/templates/ge-app-master.template.env`](../infra/configs/templates/ge-app-master.template.env) + [`infra/scripts/configure_ge_app.sh`](../infra/scripts/configure_ge_app.sh) | **100% Automated** |
 | **Phase 4 & 5** | Universal ADK Skill Orchestrator evaluation, Vertex AI Agent Runtime deploy, OAuth passthrough, `defaultPinned: true`, Sub-Skill catalog seed & 6-stage governance | `agents-cli` + [`backend/app/services/ge_agent_publisher.py`](../backend/app/services/ge_agent_publisher.py) | **100% Automated** |
 
 ### Quickstart: 1-Command Master Customer Onboarding (`infra/onboard_customer.sh`)
@@ -781,7 +781,155 @@ Every Cymbal departmental Gemini Enterprise App is instantiated from the **Maste
 
 ---
 
-### Creating & Provisioning Cymbal's 4 Departmental GE Apps from the Master Template (`create_app_from_template.sh`)
+### Step 3.1: Master 16-Point App Configuration Template (`infra/configs/templates/ge-app-master.template.env`)
+
+Below is the key configuration in [`infra/configs/templates/ge-app-master.template.env`](../infra/configs/templates/ge-app-master.template.env) that disables per-app knowledge sources, restricts shared grounding to Google Search only, disables agent sharing, enables skills with admin approval, and enables projects:
+
+```ini
+# 2. App Core Configuration (No Per-App Knowledge Sources; Shared Connectors + Google Search Only)
+GE_APP_ID="{{GE_APP_ID}}"
+GE_APP_DISPLAY_NAME="{{GE_APP_DISPLAY_NAME}}"
+GE_COMPANY_NAME="{{CUSTOMER_COMPANY_NAME}}"
+GE_SOLUTION_TYPE="SOLUTION_TYPE_SEARCH"
+GE_APP_TYPE="APP_TYPE_INTRANET"
+GE_SEARCH_TIER="SEARCH_TIER_ENTERPRISE"
+GE_ENABLE_LLM_ADDON="true"
+GE_INDUSTRY_VERTICAL="GENERIC"
+
+# Per-App Custom Knowledge Sources Disabled (Shared Connectors + Google Search Only)
+GE_CREATE_PER_APP_DATA_STORE="false"
+GE_DATA_STORE_ID=""
+GE_DATA_STORE_DISPLAY_NAME=""
+GE_DATA_STORE_CONTENT_CONFIG="NO_CONTENT"
+GE_BACKING_STORAGE_TYPE="NONE"
+GE_GCS_BUCKET_NAME=""
+GE_BQ_DATASET_ID=""
+
+# 4. Associate Shared Enterprise Connectors (M365 SharePoint, OneDrive, Outlook, Teams)
+GE_ENABLE_COMMON_CONNECTORS="true"
+GE_COMMON_CONNECTOR_COLLECTIONS="{{CUSTOMER_NAME}}-m365-sp,{{CUSTOMER_NAME}}-m365-od,{{CUSTOMER_NAME}}-m365-ol,{{CUSTOMER_NAME}}-m365-teams"
+GE_COMMON_CONNECTOR_DATA_STORE_IDS="{{CUSTOMER_NAME}}-m365-sp_file,{{CUSTOMER_NAME}}-m365-sp_page,{{CUSTOMER_NAME}}-m365-od_file,{{CUSTOMER_NAME}}-m365-ol_mail,{{CUSTOMER_NAME}}-m365-ol_mail-attachment,{{CUSTOMER_NAME}}-m365-ol_calendar,{{CUSTOMER_NAME}}-m365-ol_contact,{{CUSTOMER_NAME}}-m365-teams_channel-message,{{CUSTOMER_NAME}}-m365-teams_chat-message"
+
+# 11. Google Web Search Grounding (Share Google Search Only; Disable Per-App Knowledge Source Addition)
+GE_ENABLE_WEB_SEARCH_GROUNDING="true"
+GE_WEB_GROUNDING_TYPE="WEB_GROUNDING_TYPE_GOOGLE_SEARCH"
+GE_ALLOW_PER_APP_KNOWLEDGE_SOURCES="false"
+GE_FEATURE_ADD_KNOWLEDGE_SOURCES="FEATURE_STATE_OFF"
+GE_SHARED_GROUNDING_SOURCE="GOOGLE_SEARCH_ONLY"
+GE_ALLOWED_GROUNDING_SOURCES="GOOGLE_SEARCH"
+
+# 16. Full Feature Management & Sharing Governance Matrix (Engine & Widget)
+GE_FEATURE_AGENT_GALLERY="FEATURE_STATE_ON"
+GE_FEATURE_NO_CODE_AGENT_BUILDER="FEATURE_STATE_ON"
+GE_FEATURE_AGENT_SHARING="FEATURE_STATE_OFF"
+GE_FEATURE_SKILLS="FEATURE_STATE_ON"
+GE_FEATURE_SKILL_SHARING="FEATURE_STATE_ON"
+GE_FEATURE_SKILL_SHARING_ADMIN_APPROVAL="FEATURE_STATE_ON"
+GE_FEATURE_PROJECTS="FEATURE_STATE_ON"
+GE_FEATURE_PROMPT_GALLERY="FEATURE_STATE_ON"
+GE_FEATURE_MODEL_SELECTOR="FEATURE_STATE_ON"
+GE_FEATURE_NOTEBOOK_LM="FEATURE_STATE_ON"
+GE_FEATURE_DEEP_RESEARCH="FEATURE_STATE_ON"
+GE_FEATURE_PEOPLE_SEARCH="FEATURE_STATE_ON"
+GE_FEATURE_ACTIONS="FEATURE_STATE_ON"
+GE_FEATURE_AUDIO_OVERVIEW="FEATURE_STATE_ON"
+
+# Agent Sharing (Disabled) + Skills & Admin-Approved Sharing + Projects (Enabled)
+GE_ALLOW_AGENT_SHARING="false"
+GE_AGENT_SHARING_POLICY="SHARING_POLICY_DISABLED"
+GE_ENABLE_SKILLS="true"
+GE_SKILL_SHARING_APPROVAL_POLICY="ADMIN_APPROVAL_REQUIRED"
+GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING="true"
+GE_SKILL_APPROVER_GROUP="ge-platform-admins@{{CUSTOMER_DOMAIN}}"
+GE_ENABLE_PROJECTS="true"
+```
+
+---
+
+### Step 3.2: Discovery Engine `v1alpha` Engine & Widget REST Payloads (`infra/payloads/app_config.json.tmpl` & `widget_config.json.tmpl`)
+
+When [`infra/scripts/configure_ge_app.sh`](../infra/scripts/configure_ge_app.sh) executes, it applies the following `Engine` and `WidgetConfig` payloads via `PATCH /v1alpha/projects/cymbal-ge-prod/locations/global/collections/default_collection/engines/{app_id}`:
+
+```json
+{
+  "displayName": "Cymbal Finance & Accounting Assistant",
+  "solutionType": "SOLUTION_TYPE_SEARCH",
+  "appType": "APP_TYPE_INTRANET",
+  "industryVertical": "GENERIC",
+  "dataStoreIds": [
+    "cymbal-m365-sp_file",
+    "cymbal-m365-sp_page",
+    "cymbal-m365-od_file",
+    "cymbal-m365-ol_mail",
+    "cymbal-m365-ol_mail-attachment",
+    "cymbal-m365-ol_calendar",
+    "cymbal-m365-ol_contact",
+    "cymbal-m365-teams_channel-message",
+    "cymbal-m365-teams_chat-message"
+  ],
+  "commonConfig": {
+    "companyName": "Cymbal"
+  },
+  "searchEngineConfig": {
+    "searchTier": "SEARCH_TIER_ENTERPRISE",
+    "searchAddOns": ["SEARCH_ADD_ON_LLM"]
+  },
+  "features": {
+    "agent-gallery": "FEATURE_STATE_ON",
+    "no-code-agent-builder": "FEATURE_STATE_ON",
+    "agent-sharing": "FEATURE_STATE_OFF",
+    "add-knowledge-sources": "FEATURE_STATE_OFF",
+    "skills": "FEATURE_STATE_ON",
+    "skill-sharing": "FEATURE_STATE_ON",
+    "skill-sharing-admin-approval": "FEATURE_STATE_ON",
+    "projects": "FEATURE_STATE_ON",
+    "prompt-gallery": "FEATURE_STATE_ON",
+    "model-selector": "FEATURE_STATE_ON",
+    "notebook-lm": "FEATURE_STATE_ON",
+    "deep-research": "FEATURE_STATE_ON",
+    "people-search": "FEATURE_STATE_ON",
+    "actions": "FEATURE_STATE_ON",
+    "audio-overview": "FEATURE_STATE_ON"
+  },
+  "sharingConfig": {
+    "allowAgentSharing": false,
+    "agentSharingPolicy": "SHARING_POLICY_DISABLED",
+    "allowPerAppKnowledgeSources": false,
+    "sharedGroundingSource": "GOOGLE_SEARCH_ONLY",
+    "allowedGroundingSources": ["GOOGLE_SEARCH"],
+    "enableSkills": true,
+    "skillSharingPolicy": "ADMIN_APPROVAL_REQUIRED",
+    "requireAdminApprovalForSkillSharing": true,
+    "skillApproverGroup": "ge-platform-admins@cymbal.com",
+    "enableProjects": true
+  },
+  "knowledgeGraphConfig": {
+    "enablePrivateKnowledgeGraph": true,
+    "enableKnowledgeCatalog": true,
+    "taxonomyId": "cymbal-enterprise-taxonomy"
+  },
+  "chatHistoryConfig": {
+    "retentionDays": 90
+  },
+  "modelArmorConfig": {
+    "enableModelArmor": true,
+    "promptTemplateName": "projects/cymbal-ge-prod/locations/us-central1/templates/cymbal-model-armor-prompt",
+    "responseTemplateName": "projects/cymbal-ge-prod/locations/us-central1/templates/cymbal-model-armor-response",
+    "failureMode": "FAIL_CLOSED"
+  },
+  "observabilityConfig": {
+    "enableObservability": true,
+    "enableAuditLogging": true,
+    "enableQueryResponseLogging": true,
+    "enableLatencyMetrics": true,
+    "bigqueryExportDataset": "cymbal_ge_observability"
+  }
+}
+```
+
+---
+
+### Step 3.3: Creating & Provisioning Cymbal's 4 Departmental GE Apps from the Master Template (`create_app_from_template.sh`)
 
 We provision **4 isolated GE Apps** for Cymbal from [`infra/configs/templates/ge-app-master.template.env`](../infra/configs/templates/ge-app-master.template.env):
 1. **`cymbal-dev-sandbox-app`**: Isolated Dev/Sandbox GE App where Cymbal prompt engineers author and test new Skills.
