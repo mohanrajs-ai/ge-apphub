@@ -303,10 +303,18 @@ echo ""
 echo ">>> [Phase 4] Deploying & Pinning Universal ADK Skill Orchestrator across ${CUSTOMER_NAME} GE Apps..."
 if [[ "${DRY_RUN}" == "true" ]]; then
   echo "[DRY-RUN] Would run 'agents-cli deploy --project ${GCP_PROJECT_ID} --region ${GCP_REGION}' in agents/universal_skill_orchestrator"
-  echo "[DRY-RUN] Would run 'agents-cli publish gemini-enterprise' and set defaultPinned=true on ${CUSTOMER_NAME}-service-desk-app, ${CUSTOMER_NAME}-finance-app, ${CUSTOMER_NAME}-hr-app"
+  "${SCRIPT_DIR}/publish_universal_agent.sh" \
+    --gcp-project-id "${GCP_PROJECT_ID}" \
+    --region "${GCP_REGION}" \
+    --all-apps \
+    --dry-run
 else
   cd "${REPO_ROOT}/agents/universal_skill_orchestrator"
   agents-cli deploy --project "${GCP_PROJECT_ID}" --region "${GCP_REGION}" --no-wait
+  "${SCRIPT_DIR}/publish_universal_agent.sh" \
+    --gcp-project-id "${GCP_PROJECT_ID}" \
+    --region "${GCP_REGION}" \
+    --all-apps
 fi
 
 echo ""
