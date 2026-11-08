@@ -61,6 +61,24 @@ variable "saml_sp_acs_url" {
   description = "Optional Cloud Identity Inbound SAML Profile ACS URL (https://accounts.google.com/samlrp/<profile_id>/acs)."
 }
 
+variable "create_entra_department_groups" {
+  type        = bool
+  default     = true
+  description = "Whether to automatically create and assign the 5 Gemini Enterprise department security groups to the SAML Enterprise App."
+}
+
+variable "entra_department_groups" {
+  type        = list(string)
+  default = [
+    "ge-service-desk-users",
+    "ge-finance-users",
+    "ge-hr-users",
+    "ge-skill-developers",
+    "all-ge-apps-users",
+  ]
+  description = "Mail nicknames of Microsoft Entra ID Security Groups assigned to the Google Cloud SAML Enterprise App."
+}
+
 data "azuread_client_config" "current" {}
 
 # Look up Microsoft Graph & Office 365 SharePoint Online well-known Service Principals
@@ -265,7 +283,8 @@ resource "google_secret_manager_secret_version" "m365_credentials_version" {
   })
 }
 
-# 4. SAML 2.0 Gallery App ("Google Cloud / G Suite Connector by Microsoft")
+# 4. Step 0A.2 Automation: SAML 2.0 Gallery App ("Google Cloud / G Suite Connector by Microsoft")
+#    + Department Security Groups Creation & Assignment + SAML Signing Certificate
 resource "azuread_application_from_template" "google_cloud_saml" {
   display_name = "${upper(var.customer_name)} Google Cloud & Gemini Enterprise SSO"
   template_id  = "8b1025e4-1dd2-430b-a150-2ef79cd700f5"
@@ -275,9 +294,45 @@ data "azuread_service_principal" "google_cloud_saml" {
   object_id = azuread_application_from_template.google_cloud_saml.service_principal_object_id
 }
 
+# Configure SAML Entity ID (Identifier URI) when Cloud Identity SP Entity ID is provided
+resource "azuread_application_identifier_uri" "google_cloud_saml_sp_entity_id" {
+  count          = var.saml_sp_entity_id != "" ? 1 : 0
+  application_id = azuread_application_from_template.google_cloud_saml.application_id
+  identifier_uri = var.saml_sp_entity_id
+}
+
+# Configure SAML Reply URLs (Assertion Consumer Service URLs)
+resource "azuread_application_redirect_uris" "google_cloud_saml_acs_urls" {
+  application_id = azuread_application_from_template.google_cloud_saml.application_id
+  type           = "Web"
+  redirect_uris = compact(distinct([
+    var.saml_sp_acs_url,
+    "https://www.google.com/a/${var.customer_domain}/acs",
+    "https://www.google.com",
+  ]))
+}
+
+# Generate SAML 2.0 Token Signing Certificate on the Gallery Service Principal
 resource "azuread_service_principal_token_signing_certificate" "saml_cert" {
   service_principal_id = data.azuread_service_principal.google_cloud_saml.id
   display_name         = "CN=${var.customer_name} Google Cloud SAML Signing"
+}
+
+# Create the 5 Gemini Enterprise Department Security Groups in Entra ID
+resource "azuread_group" "department_groups" {
+  for_each         = var.create_entra_department_groups ? toset(var.entra_department_groups) : toset([])
+  display_name     = "${upper(var.customer_name)} ${each.value}"
+  mail_nickname    = each.value
+  security_enabled = true
+  description      = "Gemini Enterprise department access group (${each.value}@${var.customer_domain}) synced 1:1 to Google Cloud Identity."
+}
+
+# Assign all 5 Department Security Groups to the Google Cloud SAML Enterprise App
+resource "azuread_app_role_assignment" "saml_group_assignments" {
+  for_each            = azuread_group.department_groups
+  app_role_id         = "00000000-0000-0000-0000-000000000000"
+  principal_object_id = each.value.object_id
+  resource_object_id  = data.azuread_service_principal.google_cloud_saml.object_id
 }
 
 output "entra_tenant_id" {
@@ -293,6 +348,26 @@ output "entra_m365_client_id" {
 output "gcp_secret_manager_resource" {
   value       = google_secret_manager_secret.m365_credentials.name
   description = "Secret Manager secret populated with Entra OAuth credentials."
+}
+
+output "saml_application_object_id" {
+  value       = azuread_application_from_template.google_cloud_saml.application_object_id
+  description = "Application Object ID of the Google Cloud SAML Gallery App."
+}
+
+output "saml_service_principal_object_id" {
+  value       = azuread_application_from_template.google_cloud_saml.service_principal_object_id
+  description = "Service Principal Object ID of the Google Cloud SAML Gallery App."
+}
+
+output "saml_idp_entity_id" {
+  value       = "https://sts.windows.net/${data.azuread_client_config.current.tenant_id}/"
+  description = "Microsoft Entra ID SAML 2.0 IdP Entity ID."
+}
+
+output "saml_idp_sso_url" {
+  value       = "https://login.microsoftonline.com/${data.azuread_client_config.current.tenant_id}/saml2"
+  description = "Microsoft Entra ID SAML 2.0 Single Sign-On Service URL."
 }
 
 output "saml_idp_certificate_pem" {

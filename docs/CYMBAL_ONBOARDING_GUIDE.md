@@ -95,12 +95,15 @@ You must configure **two** objects in Microsoft Entra ID for `cymbal.com`:
 
 ### Option A (Recommended): Automated Terraform Stack 00 (`infra/stacks/00-entra-bootstrap`)
 
-Stack 00 ([`infra/stacks/00-entra-bootstrap/main.tf`](../infra/stacks/00-entra-bootstrap/main.tf) + [`infra/modules/entra-bootstrap/main.tf`](../infra/modules/entra-bootstrap/main.tf)) uses the official `hashicorp/azuread` and `hashicorp/google` providers to deterministically:
-1. Create the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`) with Redirect URI `https://vertexaisearch.cloud.google.com/oauth-redirect`.
-2. Dynamically resolve all Microsoft Graph (`00000003-0000-0000-c000-000000000000`) and SharePoint Online (`00000003-0000-0ff1-ce00-000000000000`) Role & Scope UUIDs and attach all 25+ Application and Delegated permissions.
-3. Grant **Tenant-Wide Admin Consent** automatically via `azuread_app_role_assignment` and `azuread_service_principal_delegated_permission_grant`.
-4. Generate a 24-month Client Secret and write `{tenant_id, client_id, client_secret, domain}` **directly into Google Cloud Secret Manager** (`projects/cymbal-ge-prod/secrets/cymbal-m365-connector-credentials`)—zero human secret handling.
-5. Instantiate the **Google Cloud / G Suite Connector by Microsoft** SAML 2.0 Enterprise Gallery App (`8b1025e4-1dd2-430b-a150-2ef79cd700f5`), configure `https://www.google.com/a/cymbal.com/acs`, and generate a SAML token-signing certificate.
+Stack 00 ([`infra/stacks/00-entra-bootstrap/main.tf`](../infra/stacks/00-entra-bootstrap/main.tf) + [`infra/modules/entra-bootstrap/main.tf`](../infra/modules/entra-bootstrap/main.tf)) and [`infra/deploy_entra_bootstrap.sh`](../infra/deploy_entra_bootstrap.sh) use `hashicorp/azuread` and `hashicorp/google` to deterministically automate **both Step 0A.1 and Step 0A.2**:
+1. **[Step 0A.1]** Creates the OAuth 2.0 App Registration (`cymbal-ge-m365-connector`) with Redirect URI `https://vertexaisearch.cloud.google.com/oauth-redirect`.
+2. **[Step 0A.1]** Dynamically resolves all Microsoft Graph (`00000003-0000-0000-c000-000000000000`) and SharePoint Online (`00000003-0000-0ff1-ce00-000000000000`) Role & Scope UUIDs and attaches all **47 Application and Delegated permissions** across SharePoint Online, OneDrive, Outlook, Teams, and Identity Sync.
+3. **[Step 0A.1]** Grants **Tenant-Wide Admin Consent** automatically via `azuread_app_role_assignment` and `azuread_service_principal_delegated_permission_grant`.
+4. **[Step 0A.1]** Generates a 24-month Client Secret and writes `{tenant_id, client_id, client_secret, domain}` **directly into Google Cloud Secret Manager** (`projects/cymbal-ge-prod/secrets/cymbal-m365-connector-credentials`)—zero human secret handling.
+5. **[Step 0A.2]** Pre-creates or resolves the **Google Cloud Identity Inbound SAML SSO Profile** (`CYMBAL Microsoft Entra ID SSO`) when `--cloud-identity-customer-id` is passed, obtaining the exact `SAML_SP_ENTITY_ID` (`https://accounts.google.com/samlrp/<profile_id>`) and `SAML_SP_ACS_URL` (`https://accounts.google.com/samlrp/<profile_id>/acs`) upfront.
+6. **[Step 0A.2]** Instantiates the **Google Cloud / G Suite Connector by Microsoft** SAML 2.0 Enterprise Gallery App (`8b1025e4-1dd2-430b-a150-2ef79cd700f5`), sets `preferredSingleSignOnMode = "saml"`, and configures the Identifier (Entity ID) (`azuread_application_identifier_uri`) and Reply URLs (`azuread_application_redirect_uris`).
+7. **[Step 0A.2]** Automatically creates Cymbal's **5 Department Security Groups** (`ge-service-desk-users`, `ge-finance-users`, `ge-hr-users`, `ge-skill-developers`, `all-ge-apps-users`) via `azuread_group` and assigns all 5 groups to the SAML Enterprise App (`azuread_app_role_assignment.saml_group_assignments`).
+8. **[Step 0A.2]** Generates a SAML X.509 Token-Signing Certificate (`azuread_service_principal_token_signing_certificate`), exports it to `infra/configs/cymbal-entra-saml.cer`, and automatically uploads it into Google Cloud Identity (`inboundSamlSsoProfiles.idpCredentials:add`).
 
 ```bash
 cd /Users/mohanrajs/aops/geapphub/infra
@@ -111,21 +114,23 @@ az login --tenant "cymbal.com"
 # 2. Authenticate to Google Cloud
 gcloud auth application-default login
 
-# 3. Preview Stack 00 in Dry-Run Mode
+# 3. Preview Stack 00 (Step 0A.1 + Step 0A.2) in Dry-Run Mode
 ./deploy_entra_bootstrap.sh \
   --tenant-id "<cymbal-entra-tenant-uuid>" \
   --customer-name "cymbal" \
   --customer-domain "cymbal.com" \
   --gcp-project-id "cymbal-ge-prod" \
+  --cloud-identity-customer-id "customers/<CymbalCustomerID>" \
   --mode terraform \
   --dry-run
 
-# 4. Apply Stack 00 (Creates OAuth App + Admin Consent + GCP Secret + SAML Gallery App)
+# 4. Apply Stack 00 (Automates Step 0A.1 OAuth App + Step 0A.2 SAML Gallery App, Groups & Cert Handshake)
 ./deploy_entra_bootstrap.sh \
   --tenant-id "<cymbal-entra-tenant-uuid>" \
   --customer-name "cymbal" \
   --customer-domain "cymbal.com" \
   --gcp-project-id "cymbal-ge-prod" \
+  --cloud-identity-customer-id "customers/<CymbalCustomerID>" \
   --mode terraform
 ```
 
@@ -133,7 +138,7 @@ gcloud auth application-default login
 
 ### Option B: Automated Azure CLI + Microsoft Graph API Script (`--mode az-graph`)
 
-If Cymbal's Entra administrator prefers running an imperative CLI script without Terraform state, run `deploy_entra_bootstrap.sh` with `--mode az-graph`:
+If Cymbal's Entra administrator prefers running an imperative CLI script without Terraform state, run `deploy_entra_bootstrap.sh` with `--mode az-graph` (automates all 8 steps of Step 0A.1 and Step 0A.2 via Microsoft Graph REST API v1.0):
 
 ```bash
 cd /Users/mohanrajs/aops/geapphub/infra
@@ -143,6 +148,7 @@ cd /Users/mohanrajs/aops/geapphub/infra
   --customer-name "cymbal" \
   --customer-domain "cymbal.com" \
   --gcp-project-id "cymbal-ge-prod" \
+  --cloud-identity-customer-id "customers/<CymbalCustomerID>" \
   --mode az-graph
 ```
 
