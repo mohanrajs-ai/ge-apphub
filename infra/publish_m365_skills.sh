@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Publish & Share M365 Composite Skills & Sub-Skills across:
+# Standalone Process: Publish, Approve & Share M365 Composite Skills & Sub-Skills
+# across:
 #   1. GCP Agent Platform Skill Registry (agentregistry.googleapis.com)
 #   2. All Gemini Enterprise Apps (Discovery Engine skillAgentDefinition)
+#      with full lifecycle transition:
+#        :publish -> :requestAgentReview -> :enableAgent -> :setIamPolicy -> ALL_USERS
 #   3. Universal ADK Skill Orchestrator (starterPrompts & registry integration)
+#
+# Can be run independently at any time or invoked from onboard_customer.sh.
 # ==============================================================================
 set -euo pipefail
 
@@ -12,25 +17,53 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 export CLOUDSDK_METRICS_ENVIRONMENT="${CLOUDSDK_METRICS_ENVIRONMENT:+$CLOUDSDK_METRICS_ENVIRONMENT }datacloud.antigravity"
 
 ENV_FILE="${SCRIPT_DIR}/.env"
-Target_Engines=()
+APPS_CSV=""
+SKILLS_CSV=""
+MEMBERS_CSV=""
+VERIFY_ONLY="false"
+DRY_RUN="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --env)
+    --env|--config)
       ENV_FILE="$2"
       shift 2
       ;;
     --apps)
-      IFS=',' read -r -a Target_Engines <<< "$2"
+      APPS_CSV="$2"
       shift 2
+      ;;
+    --skills)
+      SKILLS_CSV="$2"
+      shift 2
+      ;;
+    --csv)
+      MEMBERS_CSV="$2"
+      shift 2
+      ;;
+    --verify-only)
+      VERIFY_ONLY="true"
+      shift
+      ;;
+    --dry-run)
+      DRY_RUN="true"
+      shift
       ;;
     -h|--help)
       cat <<EOF
 Usage: ./publish_m365_skills.sh [options]
 
+Standalone automation process to register, enable, and share M365 Skills & Sub-Skills
+across the GCP Agent Platform Skill Registry, all Gemini Enterprise Apps, and the
+Universal ADK Skill Orchestrator.
+
 Options:
-  --env <path>     Customer .env file (default: infra/.env)
-  --apps <csv>     Comma-separated target GE App IDs (auto-discovers all apps if omitted)
+  --env <path>       Customer .env file (default: infra/.env)
+  --apps <csv>       Comma-separated target GE App IDs (auto-discovers all apps if omitted)
+  --skills <csv>     Comma-separated skill IDs to publish (defaults to all 8 M365 skills)
+  --csv <path>       Optional group memberships CSV to include user principals in skill IAM
+  --verify-only      Audit skill state (ENABLED) and sharingState (SHARED) across all apps
+  --dry-run          Print planned actions without calling GCP APIs
 EOF
       exit 0
       ;;
@@ -52,474 +85,386 @@ GCP_PROJECT_ID="${GCP_PROJECT_ID:-cymbal-app-514110}"
 GE_LOCATION="${GE_LOCATION:-global}"
 CUSTOMER_PRIMARY_DOMAIN="${CUSTOMER_PRIMARY_DOMAIN:-mohanrajs.demo.altostrat.com}"
 
+if [[ -z "${MEMBERS_CSV}" && -f "${SCRIPT_DIR}/configs/cymbal-group-memberships.csv" ]]; then
+  MEMBERS_CSV="${SCRIPT_DIR}/configs/cymbal-group-memberships.csv"
+fi
+
 PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
 if [[ ! -x "${PYTHON_BIN}" ]]; then
   PYTHON_BIN="python3"
 fi
 
-TOKEN="$("${PYTHON_BIN}" -c '
-import google.auth, google.auth.transport.requests
-creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-creds.refresh(google.auth.transport.requests.Request())
-print(creds.token)
-')"
+"${PYTHON_BIN}" - "${REPO_ROOT}" "${GCP_PROJECT_ID}" "${GE_LOCATION}" "${CUSTOMER_PRIMARY_DOMAIN}" "${APPS_CSV}" "${SKILLS_CSV}" "${MEMBERS_CSV}" "${VERIFY_ONLY}" "${DRY_RUN}" <<'PYEOF'
+import base64
+from concurrent.futures import ThreadPoolExecutor
+import csv
+import io
+import json
+import pathlib
+import sys
+import zipfile
 
-PROJECT_NUMBER="$(curl -s -H "Authorization: Bearer ${TOKEN}" "https://cloudresourcemanager.googleapis.com/v1/projects/${GCP_PROJECT_ID}" | jq -r '.projectNumber')"
+import google.auth
+from google.auth.transport import requests as grequests
 
-if [[ "${GE_LOCATION}" == "global" ]]; then
-  DE_ENDPOINT="https://discoveryengine.googleapis.com"
-else
-  DE_ENDPOINT="https://${GE_LOCATION}-discoveryengine.googleapis.com"
-fi
-AR_ENDPOINT="https://agentregistry.googleapis.com"
+(
+    repo_root_str,
+    project_id,
+    location,
+    primary_domain,
+    apps_csv,
+    skills_csv,
+    members_csv,
+    verify_only_str,
+    dry_run_str,
+) = sys.argv[1:10]
 
-# Auto-discover all Gemini Enterprise apps if --apps was not specified
-if [[ ${#Target_Engines[@]} -eq 0 ]]; then
-  ENGINES_JSON="$(curl -s \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-    "${DE_ENDPOINT}/v1alpha/projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/collections/default_collection/engines")"
-  while IFS= read -r eng_id; do
-    [[ -n "${eng_id}" ]] && Target_Engines+=("${eng_id}")
-  done < <(echo "${ENGINES_JSON}" | jq -r '.engines[]?.name | split("/") | last')
-fi
+repo_root = pathlib.Path(repo_root_str)
+verify_only = verify_only_str.lower() == "true"
+dry_run = dry_run_str.lower() == "true"
 
-if [[ ${#Target_Engines[@]} -eq 0 ]]; then
-  echo "[ERROR] No Gemini Enterprise apps found in project ${GCP_PROJECT_ID}." >&2
-  exit 1
-fi
+de_endpoint = (
+    "https://discoveryengine.googleapis.com"
+    if location == "global"
+    else f"https://{location}-discoveryengine.googleapis.com"
+)
+ar_endpoint = "https://agentregistry.googleapis.com"
 
-echo "=================================================================="
-echo " Publishing & Sharing M365 Skills & Sub-Skills"
-echo "------------------------------------------------------------------"
-echo " GCP Project   : ${GCP_PROJECT_ID} (${PROJECT_NUMBER})"
-echo " Location      : ${GE_LOCATION}"
-echo " Primary Domain: ${CUSTOMER_PRIMARY_DOMAIN}"
-echo " Target GE Apps: ${Target_Engines[*]}"
-echo "=================================================================="
 
-# ------------------------------------------------------------------------------
-# Helper: Build zip archive base64 for Agent Platform Skill Registry
-# ------------------------------------------------------------------------------
-build_skill_zip_b64() {
-  local skill_md_content="$1"
-  python3 -c '
-import base64, io, sys, zipfile
-content = sys.stdin.read()
-buf = io.BytesIO()
-with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-    zf.writestr("SKILL.md", content.encode("utf-8"))
-print(base64.b64encode(buf.getvalue()).decode("ascii"))
-' <<< "${skill_md_content}"
-}
+def get_session() -> grequests.AuthorizedSession:
+    creds, _ = google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+    sess = grequests.AuthorizedSession(creds)
+    sess.headers["x-goog-user-project"] = project_id
+    return sess
 
-# ------------------------------------------------------------------------------
-# Helper: Publish skill to GCP Agent Platform Skill Registry & grant IAM
-# ------------------------------------------------------------------------------
-publish_to_agent_registry() {
-  local skill_id="$1"
-  local display_name="$2"
-  local description="$3"
-  local md_file="$4"
 
-  local raw_md
-  raw_md="$(cat "${md_file}")"
-  local zip_b64
-  zip_b64="$(build_skill_zip_b64 "${raw_md}")"
+sess0 = get_session()
+proj_resp = sess0.get(
+    f"https://cloudresourcemanager.googleapis.com/v1/projects/{project_id}",
+    timeout=10.0,
+)
+project_number = (
+    str(proj_resp.json().get("projectNumber", project_id))
+    if proj_resp.status_code == 200
+    else project_id
+)
 
-  local skill_res="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/skills/private-${skill_id}"
-  local get_code
-  get_code="$(curl -s -o /tmp/ar_skill_get.json -w "%{http_code}" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-    "${AR_ENDPOINT}/v1alpha/${skill_res}")"
+if apps_csv.strip():
+    target_engines = [a.strip() for a in apps_csv.split(",") if a.strip()]
+else:
+    eng_resp = sess0.get(
+        f"{de_endpoint}/v1alpha/projects/{project_id}/locations/{location}/collections/default_collection/engines",
+        timeout=10.0,
+    )
+    target_engines = sorted(
+        e["name"].split("/")[-1]
+        for e in eng_resp.json().get("engines", [])
+        if e.get("name")
+    )
 
-  if [[ "${get_code}" != "200" ]]; then
-    local create_payload
-    create_payload="$(jq -n \
-      --arg dn "${skill_id}" \
-      --arg desc "${description}" \
-      --arg zb "${zip_b64}" \
-      '{
-        displayName: $dn,
-        description: $desc,
-        type: "SIMPLE",
-        targetState: "TARGET_STATE_ACTIVE",
-        scanningConfig: { policy: "ENABLED_NONBLOCKING" },
-        initialRevision: {
-          archiveUploadSource: { archiveContent: $zb }
-        }
-      }')"
-    curl -s -o /tmp/ar_skill_create.json -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${AR_ENDPOINT}/v1alpha/projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/skills?skillId=${skill_id}" \
-      -d "${create_payload}" >/dev/null
-    echo "  [OK] Registered in GCP Skill Registry: ${skill_res}"
-  else
-    echo "  [OK] Verified in GCP Skill Registry  : ${skill_res}"
-  fi
-
-  # Share in GCP Agent Platform Skill Registry across domain & departmental groups
-  local iam_payload
-  iam_payload="$(jq -n \
-    --arg dom "domain:${CUSTOMER_PRIMARY_DOMAIN}" \
-    --arg g1 "group:ge-platform-admins@${CUSTOMER_PRIMARY_DOMAIN}" \
-    --arg g2 "group:ge-skill-developers@${CUSTOMER_PRIMARY_DOMAIN}" \
-    --arg g3 "group:ge-service-desk-users@${CUSTOMER_PRIMARY_DOMAIN}" \
-    --arg g4 "group:ge-finance-users@${CUSTOMER_PRIMARY_DOMAIN}" \
-    --arg g5 "group:ge-hr-users@${CUSTOMER_PRIMARY_DOMAIN}" \
-    '{
-      policy: {
-        bindings: [
-          {
-            role: "roles/agentregistry.skillUser",
-            members: [$dom, $g1, $g2, $g3, $g4, $g5]
-          }
-        ]
-      }
-    }')"
-  curl -s -o /dev/null -X POST \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "Content-Type: application/json" \
-    -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-    "${AR_ENDPOINT}/v1alpha/${skill_res}:setIamPolicy" \
-    -d "${iam_payload}" || true
-}
-
-# ------------------------------------------------------------------------------
-# Helper: Render engine-specific SKILL.md instruction with 1P M365 tool paths
-# ------------------------------------------------------------------------------
-render_engine_skill_instruction() {
-  local skill_id="$1"
-  local engine_id="$2"
-  local base_tool_prefix="projects/${PROJECT_NUMBER}/locations/${GE_LOCATION}/collections/default_collection/engines/${engine_id}/assistants/default_assistant/agents"
-  local t_cal="${base_tool_prefix}/1p-skill-manta-data-connector-skill-type-outlook-calendar"
-  local t_mail="${base_tool_prefix}/1p-skill-manta-data-connector-skill-type-outlook-email"
-  local t_teams="${base_tool_prefix}/1p-skill-manta-data-connector-skill-type-teams"
-  local t_sp="${base_tool_prefix}/1p-skill-manta-data-connector-skill-type-sharepoint"
-  local t_od="${base_tool_prefix}/1p-skill-manta-data-connector-skill-type-onedrive"
-
-  case "${skill_id}" in
-    daily-morning-summary)
-      cat <<EOF
-# Daily Morning Summary (Composite M365 Skill)
-
-Orchestrates 3 M365 Sub-Skills (\`m365-calendar-briefing\`, \`m365-outlook-triage\`, and \`m365-teams-incident-swarm\`) to compile an executive morning briefing.
-
-## Required Tools
-- \`${t_cal}\`: Fetch today's Outlook Calendar schedule, attendees, and conflicts.
-- \`${t_mail}\`: Fetch unread high-priority Outlook emails from the last 24 hours.
-- \`${t_teams}\`: Fetch unread Microsoft Teams @mentions, direct messages, and active incident channel updates.
-
-## Step-by-Step Workflow
-1. **Sub-Skill 1 (\`m365-calendar-briefing\`)**: Query \`${t_cal}\` for today's meetings, key participants, and overlapping slots.
-2. **Sub-Skill 2 (\`m365-outlook-triage\`)**: Query \`${t_mail}\` for urgent/unread emails requiring same-day response.
-3. **Sub-Skill 3 (\`m365-teams-incident-swarm\`)**: Query \`${t_teams}\` for direct @mentions and blockers.
-4. Present a structured Markdown briefing with **Today's Schedule**, **Priority Emails**, **Microsoft Teams Highlights**, and **Top 3 Priorities**.
-EOF
-      ;;
-    customer-escalation-resolver)
-      cat <<EOF
-# Customer Escalation Resolver (Composite M365 Skill)
-
-Orchestrates 2 M365 Sub-Skills (\`m365-outlook-triage\` and \`sharepoint-policy-lookup\`) to triage customer escalations and recommend SLA-backed remediation.
-
-## Required Tools
-- \`${t_mail}\`: Search Outlook email threads for customer escalation history, severity, and SLA timestamps.
-- \`${t_sp}\`: Search SharePoint Online for official SLA credit policies and escalation matrices.
-
-## Step-by-Step Workflow
-1. **Sub-Skill 1 (\`m365-outlook-triage\`)**: Query \`${t_mail}\` to extract customer sender, impacted service, severity, and elapsed SLA window.
-2. **Sub-Skill 2 (\`sharepoint-policy-lookup\`)**: Query \`${t_sp}\` for the matching SLA policy tier, credit eligibility, and required approvers.
-3. Output an **Executive Escalation Resolution Plan** and a ready-to-send **Customer Response Draft**.
-EOF
-      ;;
-    service-desk-major-incident-bridge)
-      cat <<EOF
-# Service Desk Major Incident Bridge (Composite M365 Skill)
-
-Orchestrates 4 M365 Sub-Skills (\`m365-teams-incident-swarm\`, \`sharepoint-policy-lookup\`, \`m365-onedrive-artifact-finder\`, and \`m365-outlook-triage\`) for P1/P2 major incident response.
-
-## Required Tools
-- \`${t_teams}\`: Search Microsoft Teams war-room channels for live incident timelines and mitigation owners.
-- \`${t_sp}\`: Retrieve P1/P2 incident escalation SOPs and rollback checklists from SharePoint Online.
-- \`${t_od}\`: Locate diagnostic spreadsheets, architecture diagrams, and RCA drafts in OneDrive.
-- \`${t_mail}\`: Correlate inbound customer impact emails in Outlook and draft executive status updates.
-
-## Step-by-Step Workflow
-1. **Sub-Skill 1 (\`m365-teams-incident-swarm\`)**: Query \`${t_teams}\` for active war-room threads, root-cause hypotheses, and action owners.
-2. **Sub-Skill 2 (\`sharepoint-policy-lookup\`)**: Query \`${t_sp}\` for the applicable major incident runbook and SLA cadence.
-3. **Sub-Skill 3 (\`m365-onedrive-artifact-finder\`)**: Query \`${t_od}\` for live telemetry sheets and draft post-mortem documents.
-4. **Sub-Skill 4 (\`m365-outlook-triage\`)**: Query \`${t_mail}\` for affected customer reports and synthesize a complete **Major Incident SitRep**.
-EOF
-      ;;
-    m365-outlook-triage)
-      cat <<EOF
-# M365 Outlook Escalation Triage (Atomic Sub-Skill)
-
-## Required Tools
-- \`${t_mail}\`: Query Microsoft Outlook emails for urgent threads, VIP senders, and SLA deadlines.
-
-## Execution Instructions
-1. Search \`${t_mail}\` for unread or high-importance emails matching the user's topic or customer.
-2. Return sender, subject, timestamp, severity, and concrete action items.
-EOF
-      ;;
-    sharepoint-policy-lookup)
-      cat <<EOF
-# SharePoint SLA & Policy Lookup (Atomic Sub-Skill)
-
-## Required Tools
-- \`${t_sp}\`: Query Microsoft SharePoint Online sites and libraries for enterprise policies, SLA matrices, and SOP runbooks.
-
-## Execution Instructions
-1. Search \`${t_sp}\` for authoritative policy documents and runbooks matching the incident or customer tier.
-2. Cite exact SharePoint document titles, SLA commitments, and approval rules.
-EOF
-      ;;
-    m365-teams-incident-swarm)
-      cat <<EOF
-# M365 Teams Incident Swarm & War-Room Triage (Atomic Sub-Skill)
-
-## Required Tools
-- \`${t_teams}\`: Query Microsoft Teams channels, war-room chats, and @mentions.
-
-## Execution Instructions
-1. Search \`${t_teams}\` for active incident threads, @mentions, and operational blockers.
-2. Return a chronological war-room timeline, root-cause hypotheses, and assigned mitigation owners.
-EOF
-      ;;
-    m365-onedrive-artifact-finder)
-      cat <<EOF
-# M365 OneDrive RCA & Diagnostic Artifact Finder (Atomic Sub-Skill)
-
-## Required Tools
-- \`${t_od}\`: Query Microsoft OneDrive for diagnostic spreadsheets, RCA drafts, and architecture diagrams.
-
-## Execution Instructions
-1. Search \`${t_od}\` for recently modified documents matching the incident, customer, or project.
-2. Extract key metrics, findings, and direct OneDrive file citations.
-EOF
-      ;;
-    m365-calendar-briefing)
-      cat <<EOF
-# M365 Outlook Calendar Schedule & Conflict Briefing (Atomic Sub-Skill)
-
-## Required Tools
-- \`${t_cal}\`: Query Microsoft Outlook Calendar for scheduled events, attendees, and conflicts.
-
-## Execution Instructions
-1. Fetch events from \`${t_cal}\` for the target date window.
-2. Highlight external/VIP meetings, overlapping conflicts, and preparation topics.
-EOF
-      ;;
-  esac
-}
-
-# ------------------------------------------------------------------------------
-# Helper: Upsert & share a skillAgentDefinition onto a Gemini Enterprise Engine
-# ------------------------------------------------------------------------------
-upsert_skill_on_engine() {
-  local engine_id="$1"
-  local skill_id="$2"
-  local description="$3"
-
-  local instruction
-  instruction="$(render_engine_skill_instruction "${skill_id}" "${engine_id}")"
-  local agents_base="${DE_ENDPOINT}/v1alpha/projects/${PROJECT_NUMBER}/locations/${GE_LOCATION}/collections/default_collection/engines/${engine_id}/assistants/default_assistant/agents"
-  local target_url="${agents_base}/${skill_id}"
-
-  local payload
-  payload="$(jq -n \
-    --arg dn "${skill_id}" \
-    --arg desc "${description}" \
-    --arg inst "${instruction}" \
-    '{
-      displayName: $dn,
-      description: $desc,
-      sharingConfig: { scope: "ALL_USERS" },
-      skillAgentDefinition: {
-        instruction: $inst
-      }
-    }')"
-
-  local get_code
-  get_code="$(curl -s -o /tmp/ge_skill_get.json -w "%{http_code}" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-    "${target_url}")"
-
-  local agent_res_name=""
-  if [[ "${get_code}" == "200" ]]; then
-    curl -s -o /tmp/ge_skill_upsert.json -X PATCH \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${target_url}?updateMask=displayName,description,sharingConfig,skillAgentDefinition" \
-      -d "${payload}" >/dev/null
-    agent_res_name="$(jq -r '.name // empty' /tmp/ge_skill_upsert.json)"
-  else
-    curl -s -o /tmp/ge_skill_upsert.json -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${agents_base}?agentId=${skill_id}" \
-      -d "${payload}" >/dev/null
-    agent_res_name="$(jq -r '.name // empty' /tmp/ge_skill_upsert.json)"
-  fi
-
-  if [[ -n "${agent_res_name}" ]]; then
-    curl -s -m 15 -o /dev/null -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:publish" \
-      -d '{}' || true
-    curl -s -m 15 -o /dev/null -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:requestAgentReview" \
-      -d '{}' || true
-    curl -s -m 15 -o /dev/null -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:enableAgent" \
-      -d '{}' || true
-
-    local pol_json etag iam_body
-    pol_json="$(curl -s -m 15 \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:getIamPolicy")"
-    etag="$(echo "${pol_json}" | jq -r '.etag // empty')"
-    iam_body="$(echo "${pol_json}" | jq \
-      --arg dom1 "domain:${CUSTOMER_PRIMARY_DOMAIN}" \
-      --arg dom2 "domain:mohanrajs.altostrat.com" \
-      --arg pradeep "user:pradeepg@${CUSTOMER_PRIMARY_DOMAIN}" \
-      --arg etag "${etag}" '
-      ([.bindings[]? | select(.role == "roles/discoveryengine.agentOwner") | .members[]?]) as $owners |
-      ([.bindings[]? | select(.role != "roles/discoveryengine.agentUser")]) as $other_bindings |
-      (([$dom1, $dom2, $pradeep] | unique) - $owners) as $user_members |
-      {
-        policy: (
-          {
-            bindings: ($other_bindings + [{
-              role: "roles/discoveryengine.agentUser",
-              members: $user_members
-            }])
-          } + (if $etag != "" then {etag: $etag} else {} end)
+csv_users: set[str] = {f"user:pradeepg@{primary_domain}"}
+if members_csv and pathlib.Path(members_csv).exists():
+    with open(members_csv, encoding="utf-8") as f:
+        reader = csv.DictReader(
+            line for line in f if line.strip() and not line.lstrip().startswith("#")
         )
-      }')"
-    curl -s -m 15 -o /dev/null -X POST \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:setIamPolicy" \
-      -d "${iam_body}" || true
+        for row in reader:
+            email = (row.get("user_email") or "").strip().lower()
+            if email and "@" in email:
+                csv_users.add(f"user:{email}")
 
-    curl -s -m 15 -o /dev/null -X PATCH \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${DE_ENDPOINT}/v1alpha/${agent_res_name}?updateMask=sharingConfig" \
-      -d '{"sharingConfig":{"scope":"ALL_USERS"}}' || true
-    echo "  [OK] Enabled & Shared on ${engine_id} -> ${skill_id} (state=ENABLED, sharingState=SHARED, scope=ALL_USERS)"
-  else
-    echo "  [WARN] Could not upsert ${skill_id} on ${engine_id}: $(cat /tmp/ge_skill_upsert.json)" >&2
-  fi
-}
+ALL_SKILLS = [
+    {
+        "skill_id": "daily-morning-summary",
+        "description": "Composite M365 skill chaining m365-calendar-briefing, m365-outlook-triage, and m365-teams-incident-swarm for an executive Daily Morning Summary.",
+        "md_path": repo_root / "skills_catalog/composite_skills/daily-morning-summary/SKILL.md",
+    },
+    {
+        "skill_id": "customer-escalation-resolver",
+        "description": "Composite M365 skill chaining m365-outlook-triage and sharepoint-policy-lookup to resolve customer escalations with SLA policy citations.",
+        "md_path": repo_root / "skills_catalog/composite_skills/customer-escalation-resolver/SKILL.md",
+    },
+    {
+        "skill_id": "service-desk-major-incident-bridge",
+        "description": "Composite M365 incident response skill chaining m365-teams-incident-swarm, sharepoint-policy-lookup, m365-onedrive-artifact-finder, and m365-outlook-triage.",
+        "md_path": repo_root / "skills_catalog/composite_skills/service-desk-major-incident-bridge/SKILL.md",
+    },
+    {
+        "skill_id": "m365-outlook-triage",
+        "description": "Atomic M365 sub-skill that triages urgent Outlook emails and extracts sender, severity, and SLA timers via the M365 Outlook Connector.",
+        "md_path": repo_root / "skills_catalog/subskills/m365-outlook-triage/SKILL.md",
+    },
+    {
+        "skill_id": "sharepoint-policy-lookup",
+        "description": "Atomic M365 sub-skill that queries Microsoft SharePoint Online for SLA credit tiers, enterprise policies, and remediation runbooks.",
+        "md_path": repo_root / "skills_catalog/subskills/sharepoint-policy-lookup/SKILL.md",
+    },
+    {
+        "skill_id": "m365-teams-incident-swarm",
+        "description": "Atomic M365 sub-skill that searches Microsoft Teams war-room channels and @mentions for incident timelines and mitigation owners.",
+        "md_path": repo_root / "skills_catalog/subskills/m365-teams-incident-swarm/SKILL.md",
+    },
+    {
+        "skill_id": "m365-onedrive-artifact-finder",
+        "description": "Atomic M365 sub-skill that searches Microsoft OneDrive for diagnostic spreadsheets, architecture diagrams, and RCA drafts.",
+        "md_path": repo_root / "skills_catalog/subskills/m365-onedrive-artifact-finder/SKILL.md",
+    },
+    {
+        "skill_id": "m365-calendar-briefing",
+        "description": "Atomic M365 sub-skill that queries Microsoft Outlook Calendar for today's schedule, VIP attendees, and meeting conflicts.",
+        "md_path": repo_root / "skills_catalog/subskills/m365-calendar-briefing/SKILL.md",
+    },
+]
 
-# ------------------------------------------------------------------------------
-# Catalog of 8 M365 Skills & Sub-Skills (3 Composite Skills + 5 Sub-Skills)
-# ------------------------------------------------------------------------------
-SKILL_IDS=(
-  "daily-morning-summary"
-  "customer-escalation-resolver"
-  "service-desk-major-incident-bridge"
-  "m365-outlook-triage"
-  "sharepoint-policy-lookup"
-  "m365-teams-incident-swarm"
-  "m365-onedrive-artifact-finder"
-  "m365-calendar-briefing"
-)
+if skills_csv.strip():
+    wanted = {s.strip() for s in skills_csv.split(",") if s.strip()}
+    selected_skills = [s for s in ALL_SKILLS if s["skill_id"] in wanted]
+else:
+    selected_skills = ALL_SKILLS
 
-SKILL_DESCRIPTIONS=(
-  "Composite M365 skill chaining m365-calendar-briefing, m365-outlook-triage, and m365-teams-incident-swarm for an executive Daily Morning Summary."
-  "Composite M365 skill chaining m365-outlook-triage and sharepoint-policy-lookup to resolve customer escalations with SLA policy citations."
-  "Composite M365 incident response skill chaining m365-teams-incident-swarm, sharepoint-policy-lookup, m365-onedrive-artifact-finder, and m365-outlook-triage."
-  "Atomic M365 sub-skill that triages urgent Outlook emails and extracts sender, severity, and SLA timers via the M365 Outlook Connector."
-  "Atomic M365 sub-skill that queries Microsoft SharePoint Online for SLA credit tiers, enterprise policies, and remediation runbooks."
-  "Atomic M365 sub-skill that searches Microsoft Teams war-room channels and @mentions for incident timelines and mitigation owners."
-  "Atomic M365 sub-skill that searches Microsoft OneDrive for diagnostic spreadsheets, architecture diagrams, and RCA drafts."
-  "Atomic M365 sub-skill that queries Microsoft Outlook Calendar for today's schedule, VIP attendees, and meeting conflicts."
-)
+print("==================================================================")
+print(" Standalone M365 Skills & Sub-Skills Publisher")
+print("------------------------------------------------------------------")
+print(f" GCP Project   : {project_id} ({project_number})")
+print(f" Location      : {location}")
+print(f" Primary Domain: {primary_domain}")
+print(f" Target GE Apps: {', '.join(target_engines)}")
+print(f" Skills Count  : {len(selected_skills)}")
+print(f" Mode          : {'VERIFY-ONLY' if verify_only else ('DRY-RUN' if dry_run else 'LIVE APPLY')}")
+print("==================================================================")
 
-SKILL_PATHS=(
-  "${REPO_ROOT}/skills_catalog/composite_skills/daily-morning-summary/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/composite_skills/customer-escalation-resolver/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/composite_skills/service-desk-major-incident-bridge/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/subskills/m365-outlook-triage/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/subskills/sharepoint-policy-lookup/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/subskills/m365-teams-incident-swarm/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/subskills/m365-onedrive-artifact-finder/SKILL.md"
-  "${REPO_ROOT}/skills_catalog/subskills/m365-calendar-briefing/SKILL.md"
-)
 
-echo ""
-echo ">>> [Step 1/3] Registering 8 M365 Skills & Sub-Skills in GCP Agent Platform Skill Registry..."
-for idx in "${!SKILL_IDS[@]}"; do
-  publish_to_agent_registry \
-    "${SKILL_IDS[$idx]}" \
-    "${SKILL_IDS[$idx]}" \
-    "${SKILL_DESCRIPTIONS[$idx]}" \
-    "${SKILL_PATHS[$idx]}"
-done
+def render_engine_instruction(skill_id: str, engine_id: str) -> str:
+    prefix = f"projects/{project_number}/locations/{location}/collections/default_collection/engines/{engine_id}/assistants/default_assistant/agents"
+    t_cal = f"{prefix}/1p-skill-manta-data-connector-skill-type-outlook-calendar"
+    t_mail = f"{prefix}/1p-skill-manta-data-connector-skill-type-outlook-email"
+    t_teams = f"{prefix}/1p-skill-manta-data-connector-skill-type-teams"
+    t_sp = f"{prefix}/1p-skill-manta-data-connector-skill-type-sharepoint"
+    t_od = f"{prefix}/1p-skill-manta-data-connector-skill-type-onedrive"
 
-echo ""
-echo ">>> [Step 2/3] Publishing & Sharing 8 M365 Skills & Sub-Skills across all ${#Target_Engines[@]} Gemini Enterprise Apps..."
-for engine_id in "${Target_Engines[@]}"; do
-  echo "--- App: ${engine_id} ---"
-  for idx in "${!SKILL_IDS[@]}"; do
-    upsert_skill_on_engine \
-      "${engine_id}" \
-      "${SKILL_IDS[$idx]}" \
-      "${SKILL_DESCRIPTIONS[$idx]}"
-  done
-done
+    templates = {
+        "daily-morning-summary": (
+            "# Daily Morning Summary (Composite M365 Skill)\n\n"
+            "Orchestrates 3 M365 Sub-Skills (`m365-calendar-briefing`, `m365-outlook-triage`, and `m365-teams-incident-swarm`).\n\n"
+            f"## Required Tools\n- `{t_cal}`\n- `{t_mail}`\n- `{t_teams}`\n\n"
+            "## Step-by-Step Workflow\n"
+            f"1. **Sub-Skill 1 (`m365-calendar-briefing`)**: Query `{t_cal}` for today's meetings and conflicts.\n"
+            f"2. **Sub-Skill 2 (`m365-outlook-triage`)**: Query `{t_mail}` for urgent/unread emails from the last 24h.\n"
+            f"3. **Sub-Skill 3 (`m365-teams-incident-swarm`)**: Query `{t_teams}` for @mentions and blockers.\n"
+            "4. Present **Today's Schedule**, **Priority Emails**, **Microsoft Teams Highlights**, and **Top 3 Priorities**."
+        ),
+        "customer-escalation-resolver": (
+            "# Customer Escalation Resolver (Composite M365 Skill)\n\n"
+            "Orchestrates 2 M365 Sub-Skills (`m365-outlook-triage` and `sharepoint-policy-lookup`).\n\n"
+            f"## Required Tools\n- `{t_mail}`\n- `{t_sp}`\n\n"
+            "## Step-by-Step Workflow\n"
+            f"1. **Sub-Skill 1 (`m365-outlook-triage`)**: Query `{t_mail}` for escalation severity and SLA timers.\n"
+            f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for SLA credit tiers and escalation SOPs.\n"
+            "3. Present an **Executive Escalation Resolution Plan** and **Customer Response Draft**."
+        ),
+        "service-desk-major-incident-bridge": (
+            "# Service Desk Major Incident Bridge (Composite M365 Skill)\n\n"
+            "Orchestrates 4 M365 Sub-Skills (`m365-teams-incident-swarm`, `sharepoint-policy-lookup`, `m365-onedrive-artifact-finder`, `m365-outlook-triage`).\n\n"
+            f"## Required Tools\n- `{t_teams}`\n- `{t_sp}`\n- `{t_od}`\n- `{t_mail}`\n\n"
+            "## Step-by-Step Workflow\n"
+            f"1. **Sub-Skill 1 (`m365-teams-incident-swarm`)**: Query `{t_teams}` for war-room timeline and owners.\n"
+            f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for major incident runbooks.\n"
+            f"3. **Sub-Skill 3 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for RCA drafts and telemetry sheets.\n"
+            f"4. **Sub-Skill 4 (`m365-outlook-triage`)**: Query `{t_mail}` for customer impact and synthesize a **Major Incident SitRep**."
+        ),
+        "m365-outlook-triage": (
+            "# M365 Outlook Escalation Triage (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_mail}`\n\n"
+            f"1. Search `{t_mail}` for unread/urgent threads.\n2. Return sender, subject, severity, SLA clock, and action items."
+        ),
+        "sharepoint-policy-lookup": (
+            "# SharePoint SLA & Policy Lookup (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_sp}`\n\n"
+            f"1. Search `{t_sp}` for authoritative SLA policies and runbooks.\n2. Cite exact document titles and approval rules."
+        ),
+        "m365-teams-incident-swarm": (
+            "# M365 Teams Incident Swarm & War-Room Triage (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_teams}`\n\n"
+            f"1. Search `{t_teams}` for incident channels and @mentions.\n2. Return war-room timeline, root-cause hypotheses, and owners."
+        ),
+        "m365-onedrive-artifact-finder": (
+            "# M365 OneDrive RCA & Diagnostic Artifact Finder (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_od}`\n\n"
+            f"1. Search `{t_od}` for diagnostic spreadsheets, architecture diagrams, and RCA drafts.\n2. Return key excerpts and citations."
+        ),
+        "m365-calendar-briefing": (
+            "# M365 Outlook Calendar Schedule & Conflict Briefing (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_cal}`\n\n"
+            f"1. Fetch events from `{t_cal}`.\n2. Highlight VIP meetings, scheduling conflicts, and preparation topics."
+        ),
+    }
+    return templates[skill_id]
 
-echo ""
-echo ">>> [Step 3/3] Updating Universal ADK Skill Orchestrator starterPrompts on all ${#Target_Engines[@]} Apps..."
-for engine_id in "${Target_Engines[@]}"; do
-  uni_url="${DE_ENDPOINT}/v1alpha/projects/${PROJECT_NUMBER}/locations/${GE_LOCATION}/collections/default_collection/engines/${engine_id}/assistants/default_assistant/agents/universal-skill-orchestrator"
-  uni_code="$(curl -s -o /tmp/uni_agent_get.json -w "%{http_code}" \
-    -H "Authorization: Bearer ${TOKEN}" \
-    -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-    "${uni_url}")"
-  if [[ "${uni_code}" == "200" ]]; then
-    uni_patch="$(jq -n '{
-      description: "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry and M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive). Orchestrates composite skills (daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge) and atomic M365 sub-skills.",
-      sharingConfig: { scope: "ALL_USERS" },
-      starterPrompts: [
-        { text: "Run daily-morning-summary across my M365 Calendar, Outlook Email, and Teams mentions." },
-        { text: "Run service-desk-major-incident-bridge for P1 API latency across Teams war-room, SharePoint SOPs, and OneDrive RCA docs." },
-        { text: "Run customer-escalation-resolver to triage the latest P1 customer email in Outlook and lookup SLA credits in SharePoint." },
-        { text: "List all M365 composite skills and atomic sub-skills available in the Skill Registry." }
-      ]
-    }')"
-    curl -s -o /dev/null -X PATCH \
-      -H "Authorization: Bearer ${TOKEN}" \
-      -H "Content-Type: application/json" \
-      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
-      "${uni_url}?updateMask=description,sharingConfig,starterPrompts" \
-      -d "${uni_patch}"
-    echo "  [OK] Updated Universal Skill Orchestrator on ${engine_id} with M365 skills & starterPrompts"
-  fi
-done
 
-echo "=================================================================="
-echo " [SUCCESS] All 8 M365 Skills & Sub-Skills Registered and Shared!"
-echo "=================================================================="
+if verify_only:
+    def check_one(item):
+        app_id, sk = item
+        s = get_session()
+        ag = f"{de_endpoint}/v1alpha/projects/{project_number}/locations/{location}/collections/default_collection/engines/{app_id}/assistants/default_assistant/agents/{sk['skill_id']}"
+        v = s.get(f"{ag}:getAgentView", timeout=8.0).json().get("agentView", {})
+        return f"  [VERIFY] {app_id:24s} | {sk['skill_id']:35s} | state={v.get('state')} | sharing={v.get('agentSharingState')}"
+
+    tasks = [(a, sk) for a in target_engines for sk in selected_skills]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        for line in ex.map(check_one, tasks):
+            print(line)
+    sys.exit(0)
+
+if dry_run:
+    for sk in selected_skills:
+        print(f"  [DRY-RUN] Would register in GCP Skill Registry: projects/{project_id}/locations/{location}/skills/private-{sk['skill_id']}")
+    for a in target_engines:
+        for sk in selected_skills:
+            print(f"  [DRY-RUN] Would upsert, enable & share {sk['skill_id']} on {a} (state=ENABLED, sharing=SHARED)")
+    sys.exit(0)
+
+print("\n>>> [Step 1/3] Registering M365 Skills & Sub-Skills in GCP Agent Platform Skill Registry...")
+
+
+def register_in_ar(sk):
+    s = get_session()
+    skill_id = sk["skill_id"]
+    skill_res = f"projects/{project_id}/locations/{location}/skills/private-{skill_id}"
+    r_get = s.get(f"{ar_endpoint}/v1alpha/{skill_res}", timeout=10.0)
+    if r_get.status_code != 200:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("SKILL.md", sk["md_path"].read_text(encoding="utf-8").encode("utf-8"))
+        zip_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        s.post(
+            f"{ar_endpoint}/v1alpha/projects/{project_id}/locations/{location}/skills?skillId={skill_id}",
+            json={
+                "displayName": skill_id,
+                "description": sk["description"],
+                "type": "SIMPLE",
+                "targetState": "TARGET_STATE_ACTIVE",
+                "scanningConfig": {"policy": "ENABLED_NONBLOCKING"},
+                "initialRevision": {"archiveUploadSource": {"archiveContent": zip_b64}},
+            },
+            timeout=15.0,
+        )
+    s.post(
+        f"{ar_endpoint}/v1alpha/{skill_res}:setIamPolicy",
+        json={
+            "policy": {
+                "bindings": [
+                    {
+                        "role": "roles/agentregistry.skillUser",
+                        "members": [
+                            f"domain:{primary_domain}",
+                            f"group:ge-platform-admins@{primary_domain}",
+                            f"group:ge-skill-developers@{primary_domain}",
+                            f"group:ge-service-desk-users@{primary_domain}",
+                            f"group:ge-finance-users@{primary_domain}",
+                            f"group:ge-hr-users@{primary_domain}",
+                        ],
+                    }
+                ]
+            }
+        },
+        timeout=10.0,
+    )
+    return f"  [OK] Skill Registry: {skill_res}"
+
+
+with ThreadPoolExecutor(max_workers=8) as ex:
+    for line in ex.map(register_in_ar, selected_skills):
+        print(line, flush=True)
+
+print(f"\n>>> [Step 2/3] Publishing, Approving & Sharing across {len(target_engines)} Gemini Enterprise Apps...")
+
+
+def upsert_and_share(item):
+    app_id, sk = item
+    skill_id = sk["skill_id"]
+    s = get_session()
+    agents_base = f"{de_endpoint}/v1alpha/projects/{project_number}/locations/{location}/collections/default_collection/engines/{app_id}/assistants/default_assistant/agents"
+    target_url = f"{agents_base}/{skill_id}"
+    payload = {
+        "displayName": skill_id,
+        "description": sk["description"],
+        "sharingConfig": {"scope": "ALL_USERS"},
+        "skillAgentDefinition": {"instruction": render_engine_instruction(skill_id, app_id)},
+    }
+    r_get = s.get(target_url, timeout=8.0)
+    if r_get.status_code == 200:
+        s.patch(
+            f"{target_url}?updateMask=displayName,description,sharingConfig,skillAgentDefinition",
+            json=payload,
+            timeout=10.0,
+        )
+    else:
+        s.post(f"{agents_base}?agentId={skill_id}", json=payload, timeout=10.0)
+
+    s.post(f"{target_url}:publish", json={}, timeout=8.0)
+    cur_state = s.get(target_url, timeout=8.0).json().get("state", "")
+    if cur_state == "PRIVATE":
+        s.post(f"{target_url}:requestAgentReview", json={}, timeout=8.0)
+        s.post(f"{target_url}:enableAgent", json={}, timeout=8.0)
+    elif cur_state in ("DISABLED", "SUSPENDED"):
+        s.post(f"{target_url}:enableAgent", json={}, timeout=8.0)
+
+    pol = s.get(f"{target_url}:getIamPolicy", timeout=8.0).json()
+    etag = pol.get("etag", "")
+    bindings = pol.get("bindings", [])
+    owners = {
+        m
+        for b in bindings
+        if b.get("role") == "roles/discoveryengine.agentOwner"
+        for m in b.get("members", [])
+    }
+    members = sorted(
+        (csv_users | {f"domain:{primary_domain}", "domain:mohanrajs.altostrat.com"}) - owners
+    )
+    bindings = [b for b in bindings if b.get("role") != "roles/discoveryengine.agentUser"]
+    bindings.append({"role": "roles/discoveryengine.agentUser", "members": members})
+    s.post(
+        f"{target_url}:setIamPolicy",
+        json={"policy": {"etag": etag, "bindings": bindings}},
+        timeout=8.0,
+    )
+    s.patch(
+        f"{target_url}?updateMask=sharingConfig",
+        json={"sharingConfig": {"scope": "ALL_USERS"}},
+        timeout=8.0,
+    )
+    v = s.get(f"{target_url}:getAgentView", timeout=8.0).json().get("agentView", {})
+    return f"  [OK] {app_id:24s} -> {skill_id:35s} (state={v.get('state')}, sharing={v.get('agentSharingState')})"
+
+
+tasks = [(a, sk) for a in target_engines for sk in selected_skills]
+with ThreadPoolExecutor(max_workers=8) as ex:
+    for line in ex.map(upsert_and_share, tasks):
+        print(line, flush=True)
+
+print(f"\n>>> [Step 3/3] Updating Universal ADK Skill Orchestrator starterPrompts on {len(target_engines)} Apps...")
+for app_id in target_engines:
+    uni_url = f"{de_endpoint}/v1alpha/projects/{project_number}/locations/{location}/collections/default_collection/engines/{app_id}/assistants/default_assistant/agents/universal-skill-orchestrator"
+    if sess0.get(uni_url, timeout=8.0).status_code == 200:
+        sess0.patch(
+            f"{uni_url}?updateMask=description,sharingConfig,starterPrompts",
+            json={
+                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry and M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive). Orchestrates composite skills (daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge) and atomic M365 sub-skills.",
+                "sharingConfig": {"scope": "ALL_USERS"},
+                "starterPrompts": [
+                    {"text": "Run daily-morning-summary across my M365 Calendar, Outlook Email, and Teams mentions."},
+                    {"text": "Run service-desk-major-incident-bridge for P1 API latency across Teams war-room, SharePoint SOPs, and OneDrive RCA docs."},
+                    {"text": "Run customer-escalation-resolver to triage the latest P1 customer email in Outlook and lookup SLA credits in SharePoint."},
+                    {"text": "List all M365 composite skills and atomic sub-skills available in the Skill Registry."},
+                ],
+            },
+            timeout=8.0,
+        )
+        print(f"  [OK] Updated Universal Skill Orchestrator on {app_id}")
+
+print("==================================================================")
+print(" [SUCCESS] Standalone M365 Skill Publishing & Sharing Complete!")
+print("==================================================================")
+PYEOF
