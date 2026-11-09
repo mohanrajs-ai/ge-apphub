@@ -366,6 +366,16 @@ def share_skill_in_discovery_engine(
                 authed.post(app_url, json={}, timeout=5.0)
 
         authed.post(
+            f"{base}/{skill.resource_name}:publish",
+            json={},
+            timeout=5.0,
+        )
+        authed.post(
+            f"{base}/{skill.resource_name}:requestAgentReview",
+            json={},
+            timeout=5.0,
+        )
+        authed.post(
             f"{base}/{skill.resource_name}:enableAgent",
             json={},
             timeout=5.0,
@@ -467,6 +477,51 @@ def share_skill_in_discovery_engine(
                     json={},
                     timeout=8.0,
                 )
+                authed.post(
+                    f"{base}/{target_ag_name}:requestAgentReview",
+                    json={},
+                    timeout=8.0,
+                )
+                authed.post(
+                    f"{base}/{target_ag_name}:enableAgent",
+                    json={},
+                    timeout=8.0,
+                )
+                t_pol = authed.get(
+                    f"{base}/{target_ag_name}:getIamPolicy",
+                    timeout=5.0,
+                )
+                if t_pol.status_code == 200:
+                    t_json = t_pol.json()
+                    t_etag = str(t_json.get("etag") or "")
+                    t_bindings = list(t_json.get("bindings") or [])
+                    t_owners = {
+                        m
+                        for b in t_bindings
+                        if b.get("role") == "roles/discoveryengine.agentOwner"
+                        for m in (b.get("members") or [])
+                    }
+                    t_members = sorted((de_members | {"domain:mohanrajs.demo.altostrat.com"}) - t_owners)
+                    t_bindings = [
+                        b
+                        for b in t_bindings
+                        if b.get("role") != "roles/discoveryengine.agentUser"
+                    ]
+                    if t_members:
+                        t_bindings.append(
+                            {
+                                "role": "roles/discoveryengine.agentUser",
+                                "members": t_members,
+                            }
+                        )
+                    t_body: dict[str, Any] = {"policy": {"bindings": t_bindings}}
+                    if t_etag:
+                        t_body["policy"]["etag"] = t_etag
+                    authed.post(
+                        f"{base}/{target_ag_name}:setIamPolicy",
+                        json=t_body,
+                        timeout=5.0,
+                    )
                 authed.patch(
                     f"{base}/{target_ag_name}?updateMask=sharingConfig",
                     json={"sharingConfig": {"scope": "ALL_USERS"}},

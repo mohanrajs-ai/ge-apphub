@@ -52,8 +52,19 @@ GCP_PROJECT_ID="${GCP_PROJECT_ID:-cymbal-app-514110}"
 GE_LOCATION="${GE_LOCATION:-global}"
 CUSTOMER_PRIMARY_DOMAIN="${CUSTOMER_PRIMARY_DOMAIN:-mohanrajs.demo.altostrat.com}"
 
-PROJECT_NUMBER="$(gcloud projects describe "${GCP_PROJECT_ID}" --format="value(projectNumber)")"
-TOKEN="$(gcloud auth print-access-token)"
+PYTHON_BIN="${REPO_ROOT}/.venv/bin/python"
+if [[ ! -x "${PYTHON_BIN}" ]]; then
+  PYTHON_BIN="python3"
+fi
+
+TOKEN="$("${PYTHON_BIN}" -c '
+import google.auth, google.auth.transport.requests
+creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+creds.refresh(google.auth.transport.requests.Request())
+print(creds.token)
+')"
+
+PROJECT_NUMBER="$(curl -s -H "Authorization: Bearer ${TOKEN}" "https://cloudresourcemanager.googleapis.com/v1/projects/${GCP_PROJECT_ID}" | jq -r '.projectNumber')"
 
 if [[ "${GE_LOCATION}" == "global" ]]; then
   DE_ENDPOINT="https://discoveryengine.googleapis.com"
@@ -360,19 +371,63 @@ upsert_skill_on_engine() {
   fi
 
   if [[ -n "${agent_res_name}" ]]; then
-    curl -s -o /dev/null -X POST \
+    curl -s -m 15 -o /dev/null -X POST \
       -H "Authorization: Bearer ${TOKEN}" \
       -H "Content-Type: application/json" \
       -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
       "${DE_ENDPOINT}/v1alpha/${agent_res_name}:publish" \
       -d '{}' || true
-    curl -s -o /dev/null -X PATCH \
+    curl -s -m 15 -o /dev/null -X POST \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
+      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:requestAgentReview" \
+      -d '{}' || true
+    curl -s -m 15 -o /dev/null -X POST \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
+      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:enableAgent" \
+      -d '{}' || true
+
+    local pol_json etag iam_body
+    pol_json="$(curl -s -m 15 \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
+      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:getIamPolicy")"
+    etag="$(echo "${pol_json}" | jq -r '.etag // empty')"
+    iam_body="$(echo "${pol_json}" | jq \
+      --arg dom1 "domain:${CUSTOMER_PRIMARY_DOMAIN}" \
+      --arg dom2 "domain:mohanrajs.altostrat.com" \
+      --arg pradeep "user:pradeepg@${CUSTOMER_PRIMARY_DOMAIN}" \
+      --arg etag "${etag}" '
+      ([.bindings[]? | select(.role == "roles/discoveryengine.agentOwner") | .members[]?]) as $owners |
+      ([.bindings[]? | select(.role != "roles/discoveryengine.agentUser")]) as $other_bindings |
+      (([$dom1, $dom2, $pradeep] | unique) - $owners) as $user_members |
+      {
+        policy: (
+          {
+            bindings: ($other_bindings + [{
+              role: "roles/discoveryengine.agentUser",
+              members: $user_members
+            }])
+          } + (if $etag != "" then {etag: $etag} else {} end)
+        )
+      }')"
+    curl -s -m 15 -o /dev/null -X POST \
+      -H "Authorization: Bearer ${TOKEN}" \
+      -H "Content-Type: application/json" \
+      -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
+      "${DE_ENDPOINT}/v1alpha/${agent_res_name}:setIamPolicy" \
+      -d "${iam_body}" || true
+
+    curl -s -m 15 -o /dev/null -X PATCH \
       -H "Authorization: Bearer ${TOKEN}" \
       -H "Content-Type: application/json" \
       -H "X-Goog-User-Project: ${GCP_PROJECT_ID}" \
       "${DE_ENDPOINT}/v1alpha/${agent_res_name}?updateMask=sharingConfig" \
       -d '{"sharingConfig":{"scope":"ALL_USERS"}}' || true
-    echo "  [OK] Shared on ${engine_id} -> ${skill_id} (ALL_USERS)"
+    echo "  [OK] Enabled & Shared on ${engine_id} -> ${skill_id} (state=ENABLED, sharingState=SHARED, scope=ALL_USERS)"
   else
     echo "  [WARN] Could not upsert ${skill_id} on ${engine_id}: $(cat /tmp/ge_skill_upsert.json)" >&2
   fi
