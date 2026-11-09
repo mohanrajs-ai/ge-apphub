@@ -66,7 +66,10 @@ def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
     )
 
 
-DEFAULT_MODEL = os.getenv("ADK_ORCHESTRATOR_MODEL", "gemini-2.5-flash")
+DEFAULT_MODEL = os.getenv(
+    "ADK_ORCHESTRATOR_MODEL",
+    "projects/mohandemo/locations/us-central1/publishers/google/models/gemini-2.5-flash",
+)
 
 root_agent = LlmAgent(
     name="universal_skill_orchestrator",
