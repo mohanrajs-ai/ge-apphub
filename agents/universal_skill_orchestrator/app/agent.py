@@ -1,23 +1,19 @@
-"""Single Universal Enterprise Skill & Sub-Skill Orchestrator ADK Agent."""
+"""Single Skill-Agnostic Universal Enterprise Skill & Sub-Skill Orchestrator ADK Agent."""
 
 import os
 
 try:
     from app.tools.skill_orchestration import (
-        BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
-        execute_python_equity_quant_forecast,
-        execute_python_sla_finops_analysis,
+        execute_skill_script,
         execute_subskill,
         extract_forwarded_ge_user_token,
         load_skill_bundle,
     )
 except ImportError:
     from agents.universal_skill_orchestrator.tools.skill_orchestration import (
-        BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
-        execute_python_equity_quant_forecast,
-        execute_python_sla_finops_analysis,
+        execute_skill_script,
         execute_subskill,
         extract_forwarded_ge_user_token,
         load_skill_bundle,
@@ -28,9 +24,8 @@ from google.adk.agents.readonly_context import ReadonlyContext
 from google.adk.apps import App
 from google.adk.models.llm_request import LlmRequest
 
-DEFAULT_CATALOG_SUMMARY = ", ".join(
-    f"{item['skill_name']} ({item['skill_id']})"
-    for item in BUILTIN_M365_SKILL_REGISTRY
+DEFAULT_CATALOG_SUMMARY = (
+    "Dynamically discovered from Skill Registry via load_skill_bundle"
 )
 
 
@@ -47,35 +42,34 @@ def capture_calling_ge_user_token(
 
 
 def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
-    """Dynamically builds the orchestrator system instruction per session."""
+    """Dynamically builds the skill-agnostic orchestrator instruction per session."""
     active_name = ctx.state.get("active_skill_name", "None loaded")
     active_md = ctx.state.get("active_skill_markdown", "")
     subskills = ctx.state.get(
         "available_subskills_summary",
-        DEFAULT_CATALOG_SUMMARY,
+        "Dynamically discovered from Skill Registry via load_skill_bundle",
     )
     return (
         "You are the Universal Enterprise Skill Orchestrator running inside "
-        "Gemini Enterprise.\n"
-        "1. When a user asks to run a skill or workflow, call "
-        "`load_skill_bundle` to load the governed Parent Skill.\n"
-        "2. Follow the Parent Skill instructions step-by-step.\n"
-        "3. When a step delegates work to a specialized sub-skill, call "
-        "`execute_subskill` with the sub-skill name and input.\n"
-        "4. When a skill requires deterministic Python code execution, "
-        "statistical percentile math, financial SLA exposure calculation, or "
-        "a SHA-256 SOX audit digest, call "
-        "`execute_python_sla_finops_analysis`.\n"
-        "5. When a skill or user asks to analyze any stock, fetch 5-year "
-        "financial statements, perform Fundamental, Technical, and Sentiment "
-        "analysis, forecast next 5 years YoY growth, or generate a Buy/Sell "
-        "recommendation, load `stock-deep-research-5yr-forecast-engine` and "
-        "call `execute_python_equity_quant_forecast`.\n"
-        "6. Synthesize all sub-skill and Python tool outputs into a clear "
+        "Gemini Enterprise. You are 100% skill-agnostic and independent of "
+        "any specific use case or hardcoded script.\n"
+        "1. When a user asks to run any skill or workflow, first call "
+        "`load_skill_bundle` with the skill ID/name to dynamically fetch its "
+        "`SKILL.md` instruction, sub-skills list, and `bundled_scripts` "
+        "manifest from the Skill Registry.\n"
+        "2. Follow the loaded `SKILL.md` instructions step-by-step.\n"
+        "3. When a step in `SKILL.md` delegates work to a sub-skill, call "
+        "`execute_subskill` with the sub-skill ID and task input.\n"
+        "4. When a step in `SKILL.md` requires running a bundled Python "
+        "script (`scripts/*.py`), call `execute_skill_script` with the "
+        "`skill_id`, `script_name`, and `script_args_json`. This tool "
+        "dynamically downloads the script from the Skill Registry/GCS bucket "
+        "and executes it in an isolated Python subprocess.\n"
+        "5. Synthesize all sub-skill and script outputs into a clear "
         "enterprise response.\n\n"
         f"ACTIVE SKILL: {active_name}\n"
         f"ACTIVE SKILL INSTRUCTION:\n{active_md}\n\n"
-        f"AVAILABLE M365 SKILLS & SUB-SKILLS:\n{subskills}"
+        f"DISCOVERED REGISTRY SKILLS:\n{subskills}"
     )
 
 
@@ -88,19 +82,17 @@ root_agent = LlmAgent(
     name="universal_skill_orchestrator",
     model=DEFAULT_MODEL,
     description=(
-        "Universal Enterprise Skill Orchestrator that dynamically loads "
-        "governed Parent Skills, chains reusable Sub-Skills, and runs "
-        "deterministic Python FinOps/SLA and 5-Year Quantitative Equity "
-        "Forecasting code execution using the calling Gemini Enterprise "
-        "user's identity."
+        "Skill-agnostic Universal Enterprise Skill Orchestrator that "
+        "dynamically loads governed Parent Skills, chains reusable Sub-Skills, "
+        "and executes bundled Python scripts (`scripts/*.py`) fetched at "
+        "runtime from the AI Skill Hub Registry & GCS."
     ),
     instruction=build_dynamic_skill_instruction,
     before_model_callback=capture_calling_ge_user_token,
     tools=[
         load_skill_bundle,
         execute_subskill,
-        execute_python_sla_finops_analysis,
-        execute_python_equity_quant_forecast,
+        execute_skill_script,
     ],
 )
 

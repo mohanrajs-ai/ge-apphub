@@ -68,13 +68,14 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
     seed_resp = client.post("/api/v1/skills/seed-catalog", headers=headers)
     assert seed_resp.status_code == 200
     seed_data = seed_resp.json()
-    assert seed_data["total_seeded"] == 10
+    assert seed_data["total_seeded"] == 11
     for expected_skill_id in (
         "customer-escalation-resolver",
         "daily-morning-summary",
         "service-desk-major-incident-bridge",
         "sla-breach-financial-exposure-calculator",
         "stock-deep-research-5yr-forecast-engine",
+        "skill-rubric-benchmark-evaluator",
         "m365-outlook-triage",
         "sharepoint-policy-lookup",
         "m365-teams-incident-swarm",
@@ -204,7 +205,7 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
     assert len(finops_data["sub_skill_traces"]) == 4
     assert (
         finops_data["sub_skill_traces"][3]["sub_skill_name"]
-        == "execute_python_sla_finops_analysis"
+        == "scripts/sla_finops_calculator.py"
     )
     assert (
         finops_data["sub_skill_traces"][3]["status"] == "PYTHON_CODE_EXECUTED"
@@ -232,12 +233,43 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
     assert len(stock_data["sub_skill_traces"]) == 4
     assert (
         stock_data["sub_skill_traces"][3]["sub_skill_name"]
-        == "execute_python_equity_quant_forecast"
+        == "scripts/equity_quant_forecast.py"
     )
     assert (
         stock_data["sub_skill_traces"][3]["status"] == "PYTHON_CODE_EXECUTED"
     )
     assert "STRONG BUY" in stock_data["final_response"]
+
+    eval_resp = client.post(
+        "/api/v1/skills/orchestrate",
+        headers={
+            **headers,
+            "X-GE-User-OAuth-Token": "Bearer ya29.mock-ge-user-oauth-token",
+        },
+        json={
+            "skill_id": "skill-rubric-benchmark-evaluator",
+            "engine_id": "cymbal-service-desk-app",
+            "user_prompt": (
+                "Evaluate skill service-desk-major-incident-bridge across all "
+                "6 rubrics on quality, connector correctness, latency, and "
+                "token optimization."
+            ),
+        },
+    )
+    assert eval_resp.status_code == 200
+    eval_data = eval_resp.json()
+    assert eval_data["sub_skills_loaded"] == [
+        "sharepoint-policy-lookup",
+        "m365-onedrive-artifact-finder",
+    ]
+    assert len(eval_data["sub_skill_traces"]) == 5
+    assert [t["sub_skill_name"] for t in eval_data["sub_skill_traces"][2:]] == [
+        "scripts/generate_eval_dataset.py",
+        "scripts/execute_skill_benchmark.py",
+        "scripts/report_rubric_scorecard.py",
+    ]
+    assert "Multi-Rubric Skill Evaluation Scorecard" in eval_data["final_response"]
+    assert "SHA-256 Evaluation Certificate:" in eval_data["final_response"]
 
 
 def test_extract_forwarded_ge_user_token_variants() -> None:
