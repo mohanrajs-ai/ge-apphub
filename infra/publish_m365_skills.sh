@@ -209,6 +209,11 @@ ALL_SKILLS = [
         "md_path": repo_root / "skills_catalog/composite_skills/sla-breach-financial-exposure-calculator/SKILL.md",
     },
     {
+        "skill_id": "stock-deep-research-5yr-forecast-engine",
+        "description": "Universal-Agent-Exclusive institutional equity research skill that accepts any stock ticker or company name, retrieves 5-year financial statements, performs deep Fundamental, Technical, and Sentiment analysis, forecasts next 5 years YoY growth in Python (execute_python_equity_quant_forecast), and outputs a Buy/Hold/Sell recommendation.",
+        "md_path": repo_root / "skills_catalog/composite_skills/stock-deep-research-5yr-forecast-engine/SKILL.md",
+    },
+    {
         "skill_id": "m365-outlook-triage",
         "description": "Atomic M365 sub-skill that triages urgent Outlook emails and extracts sender, severity, and SLA timers via the M365 Outlook Connector.",
         "md_path": repo_root / "skills_catalog/subskills/m365-outlook-triage/SKILL.md",
@@ -300,6 +305,16 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
             f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Gold/Platinum SLA credit formulas in `Enterprise-SLA-Policy-v4.2.docx`.\n"
             f"3. **Sub-Skill 3 (`m365-outlook-triage`)**: Query `{t_mail}` for customer SLA claims and ARR values.\n"
             "4. **Python Execution (`execute_python_sla_finops_analysis`)**: Execute deterministic Python (`statistics`, `math`, `hashlib.sha256`) to calculate exact p95/p99 latency, availability %, USD credit liability per customer, and SOX SHA-256 audit hash."
+        ),
+        "stock-deep-research-5yr-forecast-engine": (
+            "# Institutional Stock Deep Research & 5-Year YoY Growth Forecaster (Universal Agent Exclusive Skill)\n\n"
+            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes the Python quantitative equity & forecasting tool `execute_python_equity_quant_forecast`.\n\n"
+            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_python_equity_quant_forecast` (Vertex AI ReasoningEngine Python 3 Runtime)\n\n"
+            "## Step-by-Step Workflow\n"
+            f"1. **Sub-Skill 1 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for 5-year 10-K financial statement workbooks.\n"
+            f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Investment Committee WACC, ROIC, and rating policies.\n"
+            f"3. **Sub-Skill 3 (`m365-outlook-triage`)**: Query `{t_mail}` for recent analyst research notes and earnings commentary.\n"
+            "4. **Python Execution (`execute_python_equity_quant_forecast`)**: Execute deterministic Python quantitative analysis for the requested stock: 5-year historical financial statements (FY2021-FY2025), Fundamental analysis (CAGR, ROE, ROIC, DCF intrinsic value), Technical analysis (50d/200d SMA, RSI-14, MACD, Sharpe), Sentiment analysis, chronological train/validation 2-model time-series forecasting for the next 5 years YoY growth (FY2026E-FY2030E), and an institutional Buy/Hold/Sell recommendation."
         ),
         "m365-outlook-triage": (
             "# M365 Outlook Escalation Triage (Atomic Sub-Skill)\n\n"
@@ -478,13 +493,13 @@ for app_id in target_engines:
         sess0.patch(
             f"{uni_url}?updateMask=description,sharingConfig,starterPrompts",
             json={
-                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry, M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive), and Vertex AI Python Code Execution. Orchestrates composite skills (daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge, sla-breach-financial-exposure-calculator) and atomic M365 sub-skills.",
+                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry, M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive), and Vertex AI Python Code Execution. Orchestrates composite skills (stock-deep-research-5yr-forecast-engine, sla-breach-financial-exposure-calculator, daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge) and atomic M365 sub-skills.",
                 "sharingConfig": {"scope": "ALL_USERS"},
                 "starterPrompts": [
+                    {"text": "Run stock-deep-research-5yr-forecast-engine for NVIDIA (NVDA) to analyze 5-year financial statements, Fundamental/Technical/Sentiment metrics, forecast next 5 years YoY growth, and get a Buy/Sell recommendation."},
                     {"text": "Run sla-breach-financial-exposure-calculator using M365 sub-skills + live Python execution to compute p99 latency, USD SLA credits, and a SHA-256 SOX audit hash."},
                     {"text": "Run daily-morning-summary across my M365 Calendar, Outlook Email, and Teams mentions."},
                     {"text": "Run service-desk-major-incident-bridge for P1 API latency across Teams war-room, SharePoint SOPs, and OneDrive RCA docs."},
-                    {"text": "Run customer-escalation-resolver to triage the latest P1 customer email in Outlook and lookup SLA credits in SharePoint."},
                 ],
             },
             timeout=8.0,

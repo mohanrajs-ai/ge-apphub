@@ -68,12 +68,13 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
     seed_resp = client.post("/api/v1/skills/seed-catalog", headers=headers)
     assert seed_resp.status_code == 200
     seed_data = seed_resp.json()
-    assert seed_data["total_seeded"] == 9
+    assert seed_data["total_seeded"] == 10
     for expected_skill_id in (
         "customer-escalation-resolver",
         "daily-morning-summary",
         "service-desk-major-incident-bridge",
         "sla-breach-financial-exposure-calculator",
+        "stock-deep-research-5yr-forecast-engine",
         "m365-outlook-triage",
         "sharepoint-policy-lookup",
         "m365-teams-incident-swarm",
@@ -209,6 +210,34 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
         finops_data["sub_skill_traces"][3]["status"] == "PYTHON_CODE_EXECUTED"
     )
     assert "SOX Audit SHA-256 Digest:" in finops_data["final_response"]
+
+    stock_resp = client.post(
+        "/api/v1/skills/orchestrate",
+        headers={
+            **headers,
+            "X-GE-User-OAuth-Token": "Bearer ya29.mock-ge-user-oauth-token",
+        },
+        json={
+            "skill_id": "stock-deep-research-5yr-forecast-engine",
+            "engine_id": "cymbal-finance-ops-app",
+            "user_prompt": (
+                "Analyze NVIDIA (NVDA) last 5 years financial statements, "
+                "fundamental, technical, and sentiment analysis, forecast next "
+                "5 years YoY growth, and provide Buy/Sell recommendation."
+            ),
+        },
+    )
+    assert stock_resp.status_code == 200
+    stock_data = stock_resp.json()
+    assert len(stock_data["sub_skill_traces"]) == 4
+    assert (
+        stock_data["sub_skill_traces"][3]["sub_skill_name"]
+        == "execute_python_equity_quant_forecast"
+    )
+    assert (
+        stock_data["sub_skill_traces"][3]["status"] == "PYTHON_CODE_EXECUTED"
+    )
+    assert "STRONG BUY" in stock_data["final_response"]
 
 
 def test_extract_forwarded_ge_user_token_variants() -> None:

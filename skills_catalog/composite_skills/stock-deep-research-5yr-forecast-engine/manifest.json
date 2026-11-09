@@ -1,0 +1,26 @@
+{
+  "skill_name": "stock-deep-research-5yr-forecast-engine",
+  "skill_type": "composite",
+  "execution_runtime": "universal_adk_agent_only",
+  "description": "Accepts any stock name or ticker, retrieves 5-year financial statements, performs deep Fundamental, Technical, and Sentiment analysis, forecasts next 5 years YoY growth via Python time-series modeling (`execute_python_equity_quant_forecast`), and outputs an institutional Buy/Hold/Sell recommendation.",
+  "required_connectors": [
+    "m365-onedrive-connector",
+    "m365-sharepoint-connector",
+    "m365-outlook-connector"
+  ],
+  "required_adk_tools": [
+    "load_skill_bundle",
+    "execute_subskill",
+    "execute_python_equity_quant_forecast"
+  ],
+  "sub_skills": [
+    "m365-onedrive-artifact-finder",
+    "sharepoint-policy-lookup",
+    "m365-outlook-triage"
+  ],
+  "recommended_groups": [
+    "ge-finance-users@mohanrajs.demo.altostrat.com",
+    "ge-platform-admins@mohanrajs.demo.altostrat.com",
+    "ge-skill-developers@mohanrajs.demo.altostrat.com"
+  ]
+}

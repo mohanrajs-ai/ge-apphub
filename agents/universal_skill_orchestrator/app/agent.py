@@ -6,6 +6,7 @@ try:
     from app.tools.skill_orchestration import (
         BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
+        execute_python_equity_quant_forecast,
         execute_python_sla_finops_analysis,
         execute_subskill,
         extract_forwarded_ge_user_token,
@@ -15,6 +16,7 @@ except ImportError:
     from agents.universal_skill_orchestrator.tools.skill_orchestration import (
         BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
+        execute_python_equity_quant_forecast,
         execute_python_sla_finops_analysis,
         execute_subskill,
         extract_forwarded_ge_user_token,
@@ -64,7 +66,12 @@ def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
         "statistical percentile math, financial SLA exposure calculation, or "
         "a SHA-256 SOX audit digest, call "
         "`execute_python_sla_finops_analysis`.\n"
-        "5. Synthesize all sub-skill and Python tool outputs into a clear "
+        "5. When a skill or user asks to analyze any stock, fetch 5-year "
+        "financial statements, perform Fundamental, Technical, and Sentiment "
+        "analysis, forecast next 5 years YoY growth, or generate a Buy/Sell "
+        "recommendation, load `stock-deep-research-5yr-forecast-engine` and "
+        "call `execute_python_equity_quant_forecast`.\n"
+        "6. Synthesize all sub-skill and Python tool outputs into a clear "
         "enterprise response.\n\n"
         f"ACTIVE SKILL: {active_name}\n"
         f"ACTIVE SKILL INSTRUCTION:\n{active_md}\n\n"
@@ -83,8 +90,9 @@ root_agent = LlmAgent(
     description=(
         "Universal Enterprise Skill Orchestrator that dynamically loads "
         "governed Parent Skills, chains reusable Sub-Skills, and runs "
-        "deterministic Python FinOps/SLA code execution using the calling "
-        "Gemini Enterprise user's identity."
+        "deterministic Python FinOps/SLA and 5-Year Quantitative Equity "
+        "Forecasting code execution using the calling Gemini Enterprise "
+        "user's identity."
     ),
     instruction=build_dynamic_skill_instruction,
     before_model_callback=capture_calling_ge_user_token,
@@ -92,6 +100,7 @@ root_agent = LlmAgent(
         load_skill_bundle,
         execute_subskill,
         execute_python_sla_finops_analysis,
+        execute_python_equity_quant_forecast,
     ],
 )
 
