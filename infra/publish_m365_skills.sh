@@ -106,6 +106,8 @@ import zipfile
 
 import google.auth
 from google.auth.transport import requests as grequests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 (
     repo_root_str,
@@ -136,6 +138,16 @@ def get_session() -> grequests.AuthorizedSession:
         scopes=["https://www.googleapis.com/auth/cloud-platform"]
     )
     sess = grequests.AuthorizedSession(creds)
+    retry = Retry(
+        total=3,
+        connect=3,
+        read=3,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET", "POST", "PATCH"]),
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    sess.mount("https://", adapter)
     sess.headers["x-goog-user-project"] = project_id
     return sess
 
@@ -190,6 +202,11 @@ ALL_SKILLS = [
         "skill_id": "service-desk-major-incident-bridge",
         "description": "Composite M365 incident response skill chaining m365-teams-incident-swarm, sharepoint-policy-lookup, m365-onedrive-artifact-finder, and m365-outlook-triage.",
         "md_path": repo_root / "skills_catalog/composite_skills/service-desk-major-incident-bridge/SKILL.md",
+    },
+    {
+        "skill_id": "sla-breach-financial-exposure-calculator",
+        "description": "Universal-Agent-Exclusive composite skill chaining M365 OneDrive telemetry, SharePoint SLA policy tables, and Outlook escalations with live Python execution (execute_python_sla_finops_analysis) to compute exact p95/p99 latency, availability %, USD credit liability, and SHA-256 SOX audit digest.",
+        "md_path": repo_root / "skills_catalog/composite_skills/sla-breach-financial-exposure-calculator/SKILL.md",
     },
     {
         "skill_id": "m365-outlook-triage",
@@ -273,6 +290,16 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
             f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for major incident runbooks.\n"
             f"3. **Sub-Skill 3 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for RCA drafts and telemetry sheets.\n"
             f"4. **Sub-Skill 4 (`m365-outlook-triage`)**: Query `{t_mail}` for customer impact and synthesize a **Major Incident SitRep**."
+        ),
+        "sla-breach-financial-exposure-calculator": (
+            "# SLA Breach & FinOps Financial Exposure Calculator (Universal Agent Exclusive Skill)\n\n"
+            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes the Python code execution tool `execute_python_sla_finops_analysis`.\n\n"
+            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_python_sla_finops_analysis` (Vertex AI ReasoningEngine Python 3 Runtime)\n\n"
+            "## Step-by-Step Workflow\n"
+            f"1. **Sub-Skill 1 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for 24-hour p99 latency arrays in `API-Latency-p99-Metrics.xlsx`.\n"
+            f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Gold/Platinum SLA credit formulas in `Enterprise-SLA-Policy-v4.2.docx`.\n"
+            f"3. **Sub-Skill 3 (`m365-outlook-triage`)**: Query `{t_mail}` for customer SLA claims and ARR values.\n"
+            "4. **Python Execution (`execute_python_sla_finops_analysis`)**: Execute deterministic Python (`statistics`, `math`, `hashlib.sha256`) to calculate exact p95/p99 latency, availability %, USD credit liability per customer, and SOX SHA-256 audit hash."
         ),
         "m365-outlook-triage": (
             "# M365 Outlook Escalation Triage (Atomic Sub-Skill)\n\n"
@@ -393,25 +420,25 @@ def upsert_and_share(item):
         "sharingConfig": {"scope": "ALL_USERS"},
         "skillAgentDefinition": {"instruction": render_engine_instruction(skill_id, app_id)},
     }
-    r_get = s.get(target_url, timeout=8.0)
+    r_get = s.get(target_url, timeout=15.0)
     if r_get.status_code == 200:
         s.patch(
             f"{target_url}?updateMask=displayName,description,sharingConfig,skillAgentDefinition",
             json=payload,
-            timeout=10.0,
+            timeout=25.0,
         )
     else:
-        s.post(f"{agents_base}?agentId={skill_id}", json=payload, timeout=10.0)
+        s.post(f"{agents_base}?agentId={skill_id}", json=payload, timeout=25.0)
 
-    s.post(f"{target_url}:publish", json={}, timeout=8.0)
-    cur_state = s.get(target_url, timeout=8.0).json().get("state", "")
+    s.post(f"{target_url}:publish", json={}, timeout=15.0)
+    cur_state = s.get(target_url, timeout=15.0).json().get("state", "")
     if cur_state == "PRIVATE":
-        s.post(f"{target_url}:requestAgentReview", json={}, timeout=8.0)
-        s.post(f"{target_url}:enableAgent", json={}, timeout=8.0)
+        s.post(f"{target_url}:requestAgentReview", json={}, timeout=15.0)
+        s.post(f"{target_url}:enableAgent", json={}, timeout=15.0)
     elif cur_state in ("DISABLED", "SUSPENDED"):
-        s.post(f"{target_url}:enableAgent", json={}, timeout=8.0)
+        s.post(f"{target_url}:enableAgent", json={}, timeout=15.0)
 
-    pol = s.get(f"{target_url}:getIamPolicy", timeout=8.0).json()
+    pol = s.get(f"{target_url}:getIamPolicy", timeout=15.0).json()
     etag = pol.get("etag", "")
     bindings = pol.get("bindings", [])
     owners = {
@@ -428,14 +455,14 @@ def upsert_and_share(item):
     s.post(
         f"{target_url}:setIamPolicy",
         json={"policy": {"etag": etag, "bindings": bindings}},
-        timeout=8.0,
+        timeout=15.0,
     )
     s.patch(
         f"{target_url}?updateMask=sharingConfig",
         json={"sharingConfig": {"scope": "ALL_USERS"}},
-        timeout=8.0,
+        timeout=15.0,
     )
-    v = s.get(f"{target_url}:getAgentView", timeout=8.0).json().get("agentView", {})
+    v = s.get(f"{target_url}:getAgentView", timeout=15.0).json().get("agentView", {})
     return f"  [OK] {app_id:24s} -> {skill_id:35s} (state={v.get('state')}, sharing={v.get('agentSharingState')})"
 
 
@@ -451,13 +478,13 @@ for app_id in target_engines:
         sess0.patch(
             f"{uni_url}?updateMask=description,sharingConfig,starterPrompts",
             json={
-                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry and M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive). Orchestrates composite skills (daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge) and atomic M365 sub-skills.",
+                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry, M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive), and Vertex AI Python Code Execution. Orchestrates composite skills (daily-morning-summary, customer-escalation-resolver, service-desk-major-incident-bridge, sla-breach-financial-exposure-calculator) and atomic M365 sub-skills.",
                 "sharingConfig": {"scope": "ALL_USERS"},
                 "starterPrompts": [
+                    {"text": "Run sla-breach-financial-exposure-calculator using M365 sub-skills + live Python execution to compute p99 latency, USD SLA credits, and a SHA-256 SOX audit hash."},
                     {"text": "Run daily-morning-summary across my M365 Calendar, Outlook Email, and Teams mentions."},
                     {"text": "Run service-desk-major-incident-bridge for P1 API latency across Teams war-room, SharePoint SOPs, and OneDrive RCA docs."},
                     {"text": "Run customer-escalation-resolver to triage the latest P1 customer email in Outlook and lookup SLA credits in SharePoint."},
-                    {"text": "List all M365 composite skills and atomic sub-skills available in the Skill Registry."},
                 ],
             },
             timeout=8.0,

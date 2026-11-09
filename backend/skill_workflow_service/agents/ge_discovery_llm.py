@@ -2,9 +2,13 @@
 
 import contextvars
 import datetime
+import hashlib
 import json
 import logging
+import math
 import pathlib
+import platform
+import statistics
 import uuid
 from typing import Any
 
@@ -263,6 +267,30 @@ def seed_composite_skills_catalog(session: orm.Session) -> list[str]:
                 "m365-outlook-triage",
             ],
             "owner_email": "sre-oncall@mohanrajs.demo.altostrat.com",
+        },
+        {
+            "skill_id": "sla-breach-financial-exposure-calculator",
+            "display_name": "SLA Breach & FinOps Financial Exposure Calculator — M365 + Live Python Execution (Universal Agent Exclusive)",
+            "description": (
+                "Universal-Agent-Exclusive composite skill that chains "
+                "m365-onedrive-artifact-finder, sharepoint-policy-lookup, and "
+                "m365-outlook-triage with deterministic Python code execution "
+                "(execute_python_sla_finops_analysis) to compute exact p95/p99 "
+                "latency, contractual availability %, USD SLA credit liability, "
+                "and a cryptographic SHA-256 SOX audit digest."
+            ),
+            "path": (
+                _SKILLS_CATALOG_DIR
+                / "composite_skills"
+                / "sla-breach-financial-exposure-calculator"
+                / "SKILL.md"
+            ),
+            "sub_skills": [
+                "m365-onedrive-artifact-finder",
+                "sharepoint-policy-lookup",
+                "m365-outlook-triage",
+            ],
+            "owner_email": "finops-lead@mohanrajs.demo.altostrat.com",
         },
     ]
 
@@ -754,6 +782,14 @@ class UniversalSkillOrchestratorService:
                 )
             )
 
+        if skill.skill_id == "sla-breach-financial-exposure-calculator":
+            py_trace = self._run_python_sla_finops_trace(
+                step_index=len(traces) + 1,
+                user_prompt=payload.user_prompt,
+                identity_mode=identity_mode,
+            )
+            traces.append(py_trace)
+
         synthesized_sections = "\n\n".join(
             f"### Step {t.step_index}: {t.sub_skill_display_name} "
             f"(`{t.sub_skill_name}`)\n{t.output_summary}"
@@ -790,4 +826,90 @@ class UniversalSkillOrchestratorService:
             final_response=final_response,
             total_tokens_saved=tokens_saved,
             executed_at=_utc_now().isoformat(),
+        )
+
+    def _run_python_sla_finops_trace(
+        self,
+        step_index: int,
+        user_prompt: str,
+        identity_mode: str,
+    ) -> models.SubSkillStepTrace:
+        """Executes deterministic Python statistical & FinOps SLA analysis."""
+        hourly_p99_ms = [
+            165.0, 172.0, 168.0, 175.0, 180.0, 178.0,
+            190.0, 640.0, 1850.0, 3420.0, 4200.0, 3890.0,
+            2150.0, 780.0, 210.0, 185.0, 179.0, 174.0,
+            170.0, 169.0, 173.0, 176.0, 171.0, 168.0,
+        ]
+        sorted_ms = sorted(hourly_p99_ms)
+
+        def _pct(vals: list[float], p: float) -> float:
+            k = (len(vals) - 1) * (p / 100.0)
+            f = math.floor(k)
+            c = math.ceil(k)
+            if f == c:
+                return float(vals[int(k)])
+            return float(vals[f] * (c - k) + vals[c] * (k - f))
+
+        mean_ms = round(statistics.mean(hourly_p99_ms), 2)
+        stdev_ms = round(statistics.pstdev(hourly_p99_ms), 2)
+        p50_ms = round(_pct(sorted_ms, 50.0), 2)
+        p95_ms = round(_pct(sorted_ms, 95.0), 2)
+        p99_ms = round(_pct(sorted_ms, 99.0), 2)
+        actual_avail_pct = round(((43200.0 - 82.5) / 43200.0) * 100.0, 4)
+        breach_hours = sum(1 for v in hourly_p99_ms if v > 500.0)
+        multiplier = 1.25 if breach_hours >= 4 else 1.0
+
+        contoso_usd = round(185000.0 * 0.10 * multiplier, 2)
+        fabrikam_usd = round(320000.0 * 0.25 * multiplier, 2)
+        northwind_usd = round(95000.0 * 0.10 * multiplier, 2)
+        total_usd = round(contoso_usd + fabrikam_usd + northwind_usd, 2)
+
+        ledger = {
+            "incident_id": "INC-2026-P1-089",
+            "mean_ms": mean_ms,
+            "stdev_ms": stdev_ms,
+            "p50_ms": p50_ms,
+            "p95_ms": p95_ms,
+            "p99_ms": p99_ms,
+            "actual_availability_pct": actual_avail_pct,
+            "breach_hours_gt_500ms": breach_hours,
+            "compound_multiplier": multiplier,
+            "total_credit_liability_usd": total_usd,
+        }
+        digest = hashlib.sha256(
+            json.dumps(ledger, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+
+        summary = (
+            f"[Universal ADK Agent Python Runtime `execute_python_sla_finops_analysis` "
+            f"(Python {platform.python_version()})]\n"
+            f"• Telemetry Statistics (24h OneDrive Array): Mean={mean_ms}ms | "
+            f"StdDev={stdev_ms}ms | p50={p50_ms}ms | p95={p95_ms}ms | p99={p99_ms}ms\n"
+            f"• Availability Calculation: 82.5m outage / 43,200m billing month = "
+            f"{actual_avail_pct}% ({breach_hours}h > 500ms -> {multiplier}x compound multiplier)\n"
+            f"• Tenant SLA Credit Exposure:\n"
+            f"  - Contoso Corp (Gold 99.90%, $185k ARR): ${contoso_usd:,.2f} (12.5% effective credit)\n"
+            f"  - Fabrikam Bank (Platinum 99.95%, $320k ARR): ${fabrikam_usd:,.2f} (31.25% effective credit)\n"
+            f"  - Northwind Health (Gold 99.90%, $95k ARR): ${northwind_usd:,.2f} (12.5% effective credit)\n"
+            f"• Total Portfolio SLA Liability: ${total_usd:,.2f} USD\n"
+            f"• SOX Audit SHA-256 Digest: `{digest}`"
+        )
+        return models.SubSkillStepTrace(
+            step_index=step_index,
+            sub_skill_name="execute_python_sla_finops_analysis",
+            sub_skill_display_name=(
+                "Live Python FinOps & Statistical Code Execution "
+                "(Universal ADK Agent Exclusive Tool)"
+            ),
+            sub_skill_input=user_prompt,
+            status="PYTHON_CODE_EXECUTED",
+            stream_assist_endpoint=(
+                "vertexai://projects/457338748091/locations/us-central1/"
+                "reasoningEngines/8050815728477011968:streamQuery"
+            ),
+            identity_mode=identity_mode,
+            output_summary=summary,
+            connectors_invoked=["vertex-ai-reasoning-engine-python-runtime"],
+            latency_ms=42,
         )

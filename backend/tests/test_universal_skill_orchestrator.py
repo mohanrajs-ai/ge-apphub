@@ -68,11 +68,12 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
     seed_resp = client.post("/api/v1/skills/seed-catalog", headers=headers)
     assert seed_resp.status_code == 200
     seed_data = seed_resp.json()
-    assert seed_data["total_seeded"] == 8
+    assert seed_data["total_seeded"] == 9
     for expected_skill_id in (
         "customer-escalation-resolver",
         "daily-morning-summary",
         "service-desk-major-incident-bridge",
+        "sla-breach-financial-exposure-calculator",
         "m365-outlook-triage",
         "sharepoint-policy-lookup",
         "m365-teams-incident-swarm",
@@ -176,6 +177,38 @@ def test_seed_catalog_and_orchestrate_composite_skill() -> None:
         "m365-outlook-triage",
     ]
     assert len(bridge_data["sub_skill_traces"]) == 4
+
+    finops_resp = client.post(
+        "/api/v1/skills/orchestrate",
+        headers={
+            **headers,
+            "X-GE-User-OAuth-Token": "Bearer ya29.mock-ge-user-oauth-token",
+        },
+        json={
+            "skill_id": "sla-breach-financial-exposure-calculator",
+            "engine_id": "cymbal-finance-ops-app",
+            "user_prompt": (
+                "Calculate exact SLA financial exposure and SHA-256 SOX audit "
+                "digest for P1 API Latency incident INC-2026-P1-089."
+            ),
+        },
+    )
+    assert finops_resp.status_code == 200
+    finops_data = finops_resp.json()
+    assert finops_data["sub_skills_loaded"] == [
+        "m365-onedrive-artifact-finder",
+        "sharepoint-policy-lookup",
+        "m365-outlook-triage",
+    ]
+    assert len(finops_data["sub_skill_traces"]) == 4
+    assert (
+        finops_data["sub_skill_traces"][3]["sub_skill_name"]
+        == "execute_python_sla_finops_analysis"
+    )
+    assert (
+        finops_data["sub_skill_traces"][3]["status"] == "PYTHON_CODE_EXECUTED"
+    )
+    assert "SOX Audit SHA-256 Digest:" in finops_data["final_response"]
 
 
 def test_extract_forwarded_ge_user_token_variants() -> None:

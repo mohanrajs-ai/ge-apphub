@@ -6,6 +6,7 @@ try:
     from app.tools.skill_orchestration import (
         BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
+        execute_python_sla_finops_analysis,
         execute_subskill,
         extract_forwarded_ge_user_token,
         load_skill_bundle,
@@ -14,6 +15,7 @@ except ImportError:
     from agents.universal_skill_orchestrator.tools.skill_orchestration import (
         BUILTIN_M365_SKILL_REGISTRY,
         current_ge_user_token,
+        execute_python_sla_finops_analysis,
         execute_subskill,
         extract_forwarded_ge_user_token,
         load_skill_bundle,
@@ -58,8 +60,12 @@ def build_dynamic_skill_instruction(ctx: ReadonlyContext) -> str:
         "2. Follow the Parent Skill instructions step-by-step.\n"
         "3. When a step delegates work to a specialized sub-skill, call "
         "`execute_subskill` with the sub-skill name and input.\n"
-        "4. Synthesize all sub-skill outputs into a clear enterprise "
-        "response.\n\n"
+        "4. When a skill requires deterministic Python code execution, "
+        "statistical percentile math, financial SLA exposure calculation, or "
+        "a SHA-256 SOX audit digest, call "
+        "`execute_python_sla_finops_analysis`.\n"
+        "5. Synthesize all sub-skill and Python tool outputs into a clear "
+        "enterprise response.\n\n"
         f"ACTIVE SKILL: {active_name}\n"
         f"ACTIVE SKILL INSTRUCTION:\n{active_md}\n\n"
         f"AVAILABLE M365 SKILLS & SUB-SKILLS:\n{subskills}"
@@ -76,12 +82,17 @@ root_agent = LlmAgent(
     model=DEFAULT_MODEL,
     description=(
         "Universal Enterprise Skill Orchestrator that dynamically loads "
-        "governed Parent Skills and chains reusable Sub-Skills from the "
-        "AI Skill Hub using the calling Gemini Enterprise user's identity."
+        "governed Parent Skills, chains reusable Sub-Skills, and runs "
+        "deterministic Python FinOps/SLA code execution using the calling "
+        "Gemini Enterprise user's identity."
     ),
     instruction=build_dynamic_skill_instruction,
     before_model_callback=capture_calling_ge_user_token,
-    tools=[load_skill_bundle, execute_subskill],
+    tools=[
+        load_skill_bundle,
+        execute_subskill,
+        execute_python_sla_finops_analysis,
+    ],
 )
 
 app = App(root_agent=root_agent, name="app")
