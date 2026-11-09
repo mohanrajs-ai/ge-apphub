@@ -494,8 +494,8 @@ revoke_project_level_ge_access() {
   local group_email="${GE_APP_ACCESS_GROUP:-${GE_APP_ID}-users@${domain}}"
   local group_member="group:${group_email#group:}"
   local cond_title="Only ${GE_APP_ID}"
-  local cond_desc="Restricts access exclusively to ${GE_APP_DISPLAY_NAME:-${GE_APP_ID}} (${GE_APP_ID}) and NotebookLM"
-  local cond_expr="resource.name.startsWith(\"projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/collections/${GE_COLLECTION_ID:-default_collection}/engines/${GE_APP_ID}\") || resource.name.endsWith(\"/engines/${GE_APP_ID}\") || resource.name.contains(\"/notebooks\")"
+  local cond_desc="Restricts access exclusively to ${GE_APP_DISPLAY_NAME:-${GE_APP_ID}} (${GE_APP_ID})"
+  local cond_expr="resource.name.startsWith(\"projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION}/collections/${GE_COLLECTION_ID:-default_collection}/engines/${GE_APP_ID}\") || resource.name.endsWith(\"/engines/${GE_APP_ID}\")"
 
   local policy_json set_payload
   policy_json="$(ge_curl_request "POST" "${crm_base}:getIamPolicy" '{"options":{"requestedPolicyVersion":3}}' "true" || echo '{}')"
