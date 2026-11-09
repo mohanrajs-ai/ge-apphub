@@ -8,6 +8,10 @@ source "${SCRIPT_DIR}/test_helper.sh"
 if [[ -f "${PROJECT_ROOT}/deploy_identity.sh" ]]; then
   source "${PROJECT_ROOT}/deploy_identity.sh"
 fi
+# shellcheck source=deploy_gcp_directory_sync.sh
+if [[ -f "${PROJECT_ROOT}/deploy_gcp_directory_sync.sh" ]]; then
+  source "${PROJECT_ROOT}/deploy_gcp_directory_sync.sh"
+fi
 
 TF_IDENTITY_DIR="${PROJECT_ROOT}/terraform-identity"
 
@@ -104,21 +108,37 @@ test_identity_scripts_and_cli_modes() {
   assert_contains "${upn_calls}" "graph.microsoft.com/v1.0/users/u-1" "Calls Microsoft Graph PATCH to update AdeleV UPN to example.com"
   assert_not_contains "${upn_calls}" "graph.microsoft.com/v1.0/users/u-admin" "Skips excluded break-glass admin account during bulk UPN rewrite"
 
-  # 4. Test Entity Discovery & Generation of identity_entities.auto.tfvars.json
+  # 4. Test Default GCP_DIRECTORY_SYNC Mode (delegates group/user sync to GCP Directory Sync, keeps synced_groups={})
+  assert_file_exists "${PROJECT_ROOT}/deploy_gcp_directory_sync.sh" "deploy_gcp_directory_sync.sh exists"
   local tmp_tf_dir
   tmp_tf_dir="$(mktemp -d)"
   export TF_IDENTITY_DIR_OVERRIDE="${tmp_tf_dir}"
-  export SYNC_CLOUD_IDENTITY_USERS="true"
+  export GCP_DIRECTORY_SYNC_MANIFEST_OUT="${tmp_tf_dir}/gcp-directory-sync-spec.json"
+  export IDENTITY_SYNC_MODE="GCP_DIRECTORY_SYNC"
   export ENTRA_GROUP_FILTER="securityEnabled eq true"
   export ENTRA_TO_APP_GROUP_MAPPINGS="finance-team@yourtenant.onmicrosoft.com:finance-app-01-users@example.com,hr-team@example.com:hr-app-01-users@example.com"
   export MOCK_CURL_BODY="{\"payload\":{\"data\":\"${b64_json}\"},\"access_token\":\"mock-ms-graph-token-999\",\"value\":[{\"id\":\"g-1\",\"displayName\":\"Finance Team\",\"mail\":\"finance-team@yourtenant.onmicrosoft.com\",\"mailNickname\":\"finance-team\",\"userPrincipalName\":\"AdeleV@yourtenant.onmicrosoft.com\",\"givenName\":\"Adele\",\"surname\":\"Vance\"}]}"
   sync_entra_entities_to_cloud_identity >/dev/null
   unset MOCK_CURL_BODY
+  assert_file_exists "${tmp_tf_dir}/gcp-directory-sync-spec.json" "Writes GCP Directory Sync connector specification JSON"
   assert_file_exists "${tmp_tf_dir}/identity_entities.auto.tfvars.json" "Writes identity_entities.auto.tfvars.json for Terraform"
-  local tfvars_json
+  local tfvars_json dir_sync_json
   tfvars_json="$(cat "${tmp_tf_dir}/identity_entities.auto.tfvars.json")"
-  assert_contains "${tfvars_json}" "\"finance-team@example.com\"" "Generated tfvars JSON contains normalized synced group email"
+  dir_sync_json="$(cat "${tmp_tf_dir}/gcp-directory-sync-spec.json")"
+  assert_contains "${dir_sync_json}" "\"identity_sync_mode\": \"GCP_DIRECTORY_SYNC\"" "Manifest declares GCP_DIRECTORY_SYNC mode"
+  assert_contains "${dir_sync_json}" "\"Directory.Read.All\"" "Manifest declares Directory.Read.All Graph permission"
+  assert_contains "${tfvars_json}" "\"synced_groups\": {}" "GCP_DIRECTORY_SYNC mode sets synced_groups={} so Directory Sync owns group memberships"
+  assert_contains "${tfvars_json}" "\"finance-team@example.com\"" "Generated tfvars JSON contains normalized synced group email in app_group_mappings"
   assert_contains "${tfvars_json}" "\"finance-app-01-users@example.com\"" "Generated tfvars JSON contains app_group_mappings target"
+
+  # 4a. Test Entra Outbound SCIM 2.0 Provisioning Job & GE UserStore License Sync from Directory-Synced groups
+  export ENABLE_ENTRA_SCIM_PROVISIONING_JOB="true"
+  export AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS="true"
+  export DIRECTORY_SYNC_MANAGED_GROUPS="ge-finance-users"
+  export MOCK_CURL_BODY="{\"payload\":{\"data\":\"${b64_json}\"},\"access_token\":\"mock-ms-graph-token-999\",\"id\":\"job-123\",\"value\":[{\"id\":\"sp-1\",\"displayName\":\"Google Cloud / G Suite Connector\"}],\"groups\":[{\"name\":\"groups/g-fin\",\"groupKey\":{\"id\":\"ge-finance-users@example.com\"}}],\"memberships\":[{\"preferredMemberKey\":{\"id\":\"adelev@example.com\"}},{\"preferredMemberKey\":{\"id\":\"ge-nested@example.com\"}}],\"userLicenses\":[{\"licenseConfig\":\"projects/p/locations/global/licenseConfigs/lc-1\"}]}"
+  sync_entra_entities_to_cloud_identity >/dev/null
+  unset MOCK_CURL_BODY
+  export ENABLE_ENTRA_SCIM_PROVISIONING_JOB="false"
 
   # 4b. Test clean Entra group provisioning and SAML certificate/OU assignment
   export PROVISION_CLEAN_ENTRA_APP_GROUPS="true"
@@ -166,6 +186,12 @@ EOF
   deploy_identity_main --config "${tmp_cfg}" --verify-only >/dev/null
   deploy_identity_main --config "${tmp_cfg}" --destroy >/dev/null
   deploy_identity_main --help >/dev/null
+
+  # 7. Test deploy_gcp_directory_sync_main CLI modes
+  deploy_gcp_directory_sync_main --config "${tmp_cfg}" --manifest-out "${tmp_tf_dir}/dir-sync.json" >/dev/null
+  deploy_gcp_directory_sync_main --config "${tmp_cfg}" --enable-entra-scim-job --skip-licenses --dry-run >/dev/null
+  deploy_gcp_directory_sync_main --config "${tmp_cfg}" --verify-only >/dev/null
+  deploy_gcp_directory_sync_main --help >/dev/null
   unset MOCK_CURL_BODY
   unset TF_IDENTITY_DIR_OVERRIDE
 

@@ -79,6 +79,7 @@ for tf in target_files:
     file_hit = 0
     in_heredoc = False
     heredoc_delim = None
+    in_multiline_sq = False
     prev_continued = False
     with open(tf, 'r', encoding='utf-8') as f:
         for idx, raw in enumerate(f, start=1):
@@ -87,10 +88,16 @@ for tf in target_files:
                 if stripped == heredoc_delim:
                     in_heredoc = False
                 continue
+            if in_multiline_sq:
+                if stripped.count("'") % 2 == 1:
+                    in_multiline_sq = False
+                continue
             hd = re.search(r"<<-?\s*['\"]?([A-Za-z0-9_]+)['\"]?", stripped)
             if hd:
                 in_heredoc = True
                 heredoc_delim = hd.group(1)
+            if not stripped.startswith('#') and stripped.count("'") % 2 == 1:
+                in_multiline_sq = True
             is_continued = stripped.endswith('\\')
             if prev_continued:
                 prev_continued = is_continued

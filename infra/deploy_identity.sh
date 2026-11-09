@@ -31,13 +31,14 @@ Master executable orchestrator for Microsoft Entra ID to Google Cloud Identity S
 
 Options:
   --config <path>          Path to Identity configuration file (default: ./configs/identity.env)
+  --sync-mode <mode>       Identity sync mode: GCP_DIRECTORY_SYNC (default) or TERRAFORM_GRAPH
   --dns-project-id <id>    Override Cloud DNS GCP project ID (when DNS lives in a separate project from the App project)
   --dns-zone-name <zone>   Override Cloud DNS managed zone name for shared_identity_domain
-  --dry-run                Validate config, preview Graph sync, and run 'terraform plan' without mutating state
-  --sync-only              Execute only Pre-Flight and Microsoft Graph discovery / UPN migration phases
+  --dry-run                Validate config, preview Directory Sync / Graph sync, and run 'terraform plan' without mutating state
+  --sync-only              Execute only Pre-Flight and GCP Directory Sync / Graph reconciliation phases
   --terraform-only         Execute only Pre-Flight and Terraform (terraform-identity/) provisioning phases
   --verify-only            Execute only Pre-Flight and Post-Deployment Verification phases
-  --destroy                Destroy Terraform-managed synced Cloud Identity group resources
+  --destroy                Destroy Terraform-managed Cloud Identity resources
   --help, -h               Show this help message and exit
 EOF
 }
@@ -61,6 +62,22 @@ import_existing_cloud_identity_resources() {
   local state_list existing_groups_json
   state_list="$(terraform -chdir="${tf_dir}" state list 2>/dev/null || true)"
   existing_groups_json="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" "" "true" || echo '{}')"
+
+  # When running in GCP_DIRECTORY_SYNC mode (default), ensure any legacy Terraform-managed
+  # synced_entra_groups or synced_group_members are cleanly released from Terraform state
+  # (`terraform state rm`) so Terraform does NOT delete groups/memberships owned by GCP Directory Sync.
+  if [[ "${IDENTITY_SYNC_MODE:-GCP_DIRECTORY_SYNC}" == "GCP_DIRECTORY_SYNC" ]]; then
+    local legacy_addrs
+    legacy_addrs="$(grep -E '^google_cloud_identity_group(_membership)?\.(synced_entra_groups|synced_group_members)' <<<"${state_list}" || true)"
+    if [[ -n "${legacy_addrs}" ]]; then
+      log_info "Releasing legacy Terraform group/membership state entries to GCP Directory Sync ownership (without deleting Cloud Identity resources)..."
+      while IFS= read -r addr; do
+        [[ -z "${addr}" ]] && continue
+        terraform -chdir="${tf_dir}" state rm "${addr}" >/dev/null 2>&1 || true
+      done <<<"${legacy_addrs}"
+      state_list="$(terraform -chdir="${tf_dir}" state list 2>/dev/null || true)"
+    fi
+  fi
 
   local group_keys
   group_keys="$(jq -r '.synced_groups | keys[]?' "${tfvars_file}" 2>/dev/null || true)"
@@ -208,12 +225,17 @@ deploy_identity_main() {
   export SKIP_TERRAFORM="false"
   export DNS_PROJECT_ID_OVERRIDE=""
   export DNS_ZONE_NAME_OVERRIDE=""
+  export IDENTITY_SYNC_MODE_OVERRIDE=""
   local mode="full"
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --config)
         config_file="$2"
+        shift 2
+        ;;
+      --sync-mode)
+        export IDENTITY_SYNC_MODE_OVERRIDE="$2"
         shift 2
         ;;
       --dns-project-id)

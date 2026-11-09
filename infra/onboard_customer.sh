@@ -5,8 +5,9 @@
 # Chains all 7 onboarding phases for any enterprise customer (e.g., Cymbal):
 #   - Phase 0C: GCP APIs & Remote Terraform State Bucket (gs://<customer>-ge-tfstate)
 #   - Phase 0B: Google Admin & Cloud Identity Bootstrap (deploy_google_admin_bootstrap.sh)
-#   - Phase 0A: Microsoft Entra ID OAuth + 47 M365 Scopes + SAML Gallery App (deploy_entra_bootstrap.sh)
-#   - Phase 1 : Entra -> Cloud Identity 1:1 Group Sync & SAML Handshake (deploy_identity.sh)
+#   - Phase 0A: Microsoft Entra ID OAuth + 49 M365/DirectorySync Scopes + SAML Gallery App (deploy_entra_bootstrap.sh)
+#   - Phase 1A: GCP Directory Sync Configuration & License Sync (deploy_gcp_directory_sync.sh)
+#   - Phase 1B: Cloud Identity Per-App Group Nesting & SAML Handshake (deploy_identity.sh)
 #   - Phase 2 : Shared M365 Connectors — SharePoint, OneDrive, Outlook, Teams (deploy_m365.sh)
 #   - Phase 3 : Departmental Gemini Enterprise Apps — Dev, Service Desk, Finance, HR (deploy.sh)
 #   - Phase 4 : Universal ADK Skill Orchestrator Deploy & Pin (agents-cli deploy & publish)
@@ -20,6 +21,7 @@
 #     [--dns-project-id "cymbal-dns-project"] \
 #     [--dns-zone-name "cymbal-com-zone"] \
 #     [--entra-mode terraform|az-graph] \
+#     [--seed-demo-csv] \
 #     [--dry-run]
 # ==============================================================================
 set -euo pipefail
@@ -39,6 +41,7 @@ ENTRA_TENANT_ID=""
 DNS_PROJECT_ID=""
 DNS_ZONE_NAME=""
 MEMBERS_CSV=""
+SEED_DEMO_CSV="false"
 ENTRA_MODE="terraform"
 DRY_RUN="false"
 
@@ -74,7 +77,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --members-csv)
       MEMBERS_CSV="$2"
+      SEED_DEMO_CSV="true"
       shift 2
+      ;;
+    --seed-demo-csv)
+      SEED_DEMO_CSV="true"
+      shift 1
       ;;
     --entra-mode)
       ENTRA_MODE="$2"
@@ -190,25 +198,39 @@ echo ">>> [Phase 0A] Running Microsoft Entra ID OAuth & SAML Gallery Bootstrap..
   ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
 
 # ------------------------------------------------------------------------------
-# Phase 1: Entra -> Cloud Identity Sync & Bi-Directional SAML Handshake
+# Phase 1A: Google Cloud Identity Directory Sync Configuration & License Sync
 # ------------------------------------------------------------------------------
 echo ""
-echo ">>> [Phase 1] Running Stack 01: Entra -> Cloud Identity Group Sync & SAML Handshake..."
+echo ">>> [Phase 1A] Configuring & Validating GCP Directory Sync (deploy_gcp_directory_sync.sh)..."
 if [[ "${DRY_RUN}" == "true" ]]; then
-  echo "[DRY-RUN] Would run: TF_WORKSPACE_OVERRIDE=id-${CUSTOMER_NAME}-com ./deploy_identity.sh --config configs/${CUSTOMER_NAME}-identity.env --dns-project-id ${DNS_PROJECT_ID}"
+  echo "[DRY-RUN] Would run: ./deploy_gcp_directory_sync.sh --config configs/${CUSTOMER_NAME}-identity.env --manifest-out configs/${CUSTOMER_NAME}-gcp-directory-sync.json --dry-run"
+else
+  "${SCRIPT_DIR}/deploy_gcp_directory_sync.sh" \
+    --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \
+    --manifest-out "${CONFIGS_DIR}/${CUSTOMER_NAME}-gcp-directory-sync.json"
+fi
+
+# ------------------------------------------------------------------------------
+# Phase 1B: Cloud Identity Per-App Group Nesting & SAML Handshake (Terraform)
+# ------------------------------------------------------------------------------
+echo ""
+echo ">>> [Phase 1B] Running Stack 01: Cloud Identity Per-App Group Nesting & SAML Handshake..."
+if [[ "${DRY_RUN}" == "true" ]]; then
+  echo "[DRY-RUN] Would run: TF_WORKSPACE_OVERRIDE=id-${CUSTOMER_NAME}-com ./deploy_identity.sh --config configs/${CUSTOMER_NAME}-identity.env --sync-mode GCP_DIRECTORY_SYNC --dns-project-id ${DNS_PROJECT_ID}"
 else
   TF_WORKSPACE_OVERRIDE="id-${CUSTOMER_NAME}-com" "${SCRIPT_DIR}/deploy_identity.sh" \
     --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \
+    --sync-mode "GCP_DIRECTORY_SYNC" \
     --dns-project-id "${DNS_PROJECT_ID}"
 fi
 
 # ------------------------------------------------------------------------------
-# Phase 1B: Declarative CSV Group Membership & GE License Sync
+# Optional Demo Seeding Only (--seed-demo-csv): CSV Group Membership Seeding
 # ------------------------------------------------------------------------------
 RESOLVED_MEMBERS_CSV="${MEMBERS_CSV:-${CONFIGS_DIR}/${CUSTOMER_NAME}-group-memberships.csv}"
-if [[ -f "${RESOLVED_MEMBERS_CSV}" ]]; then
+if [[ "${SEED_DEMO_CSV}" == "true" && -f "${RESOLVED_MEMBERS_CSV}" ]]; then
   echo ""
-  echo ">>> [Phase 1B] Synchronizing Group Memberships & GE Licenses from ${RESOLVED_MEMBERS_CSV}..."
+  echo ">>> [Optional Demo Seed] Seeding Sandbox Group Memberships from ${RESOLVED_MEMBERS_CSV} (--seed-demo-csv)..."
   "${SCRIPT_DIR}/sync_group_members_from_csv.sh" \
     --csv "${RESOLVED_MEMBERS_CSV}" \
     --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-identity.env" \

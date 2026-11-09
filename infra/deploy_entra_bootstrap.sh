@@ -428,6 +428,7 @@ sp_scopes = {s["value"]: s["id"] for s in sp_online.get("oauth2PermissionScopes"
 
 wanted_msgraph_roles = [
     "User.Read.All", "Group.Read.All", "GroupMember.Read.All",
+    "Directory.Read.All", "AdministrativeUnit.Read.All",
     "Sites.Read.All", "Files.Read.All",
     "Mail.Read", "Calendars.Read", "Contacts.Read",
     "Team.ReadBasic.All", "Channel.ReadBasic.All", "ChannelMessage.Read.All", "Chat.Read.All",

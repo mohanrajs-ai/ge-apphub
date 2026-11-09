@@ -483,6 +483,11 @@ TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 TF_STATE_PREFIX="ge-apphub/01-identity-foundation/id-${CUSTOMER_NAME}-com"
 
 M365_SECRET_ID="${CUSTOMER_NAME}-m365-connector-credentials"
+IDENTITY_SYNC_MODE="GCP_DIRECTORY_SYNC"
+ENABLE_GCP_DIRECTORY_SYNC="true"
+DIRECTORY_SYNC_MANAGED_GROUPS="ge-service-desk-users,ge-finance-users,ge-hr-users,ge-skill-developers,all-ge-apps-users"
+BOOTSTRAP_EMPTY_SYNC_GROUP_SHELLS="true"
+AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS="true"
 ENTRA_GROUP_FILTER="startswith(mailNickname,'ge-')"
 ENTRA_TO_APP_GROUP_MAPPINGS="ge-service-desk-users@${CUSTOMER_DOMAIN}:${CUSTOMER_NAME}-service-desk-app-users@${CUSTOMER_DOMAIN},ge-finance-users@${CUSTOMER_DOMAIN}:${CUSTOMER_NAME}-finance-app-users@${CUSTOMER_DOMAIN},ge-hr-users@${CUSTOMER_DOMAIN}:${CUSTOMER_NAME}-hr-app-users@${CUSTOMER_DOMAIN}"
 

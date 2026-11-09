@@ -110,10 +110,12 @@ locals {
 
   # 1. Microsoft Graph — Application Permissions (App Roles)
   msgraph_app_roles = [
-    # Identity & Group Sync (Entra ID -> Cloud Identity)
+    # GCP Cloud Identity Directory Sync (Entra ID -> Cloud Identity Pull)
     "User.Read.All",
     "Group.Read.All",
     "GroupMember.Read.All",
+    "Directory.Read.All",
+    "AdministrativeUnit.Read.All",
     # SharePoint Online & OneDrive (Ingestion & ACL Indexing)
     "Sites.Read.All",
     "Files.Read.All",

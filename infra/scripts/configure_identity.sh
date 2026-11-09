@@ -31,6 +31,7 @@ load_identity_config() {
   local env_m365_secret_id="${M365_SECRET_ID:-}"
   local env_dns_project_id="${DNS_PROJECT_ID_OVERRIDE:-}"
   local env_dns_zone_name="${DNS_ZONE_NAME_OVERRIDE:-}"
+  local env_sync_mode="${IDENTITY_SYNC_MODE_OVERRIDE:-}"
 
   set -a
   # shellcheck disable=SC1090
@@ -56,6 +57,18 @@ load_identity_config() {
   export DNS_ZONE_NAME="${env_dns_zone_name:-${DNS_ZONE_NAME:-}}"
   export ENTRA_DOMAIN_VERIFICATION_MS_ID="${ENTRA_DOMAIN_VERIFICATION_MS_ID:-}"
   export GOOGLE_DOMAIN_VERIFICATION_TXT="${GOOGLE_DOMAIN_VERIFICATION_TXT:-}"
+
+  # Identity Sync Mode:
+  #   - GCP_DIRECTORY_SYNC (Default): Native Google Cloud Identity Directory Sync owns User,
+  #     Group & Membership lifecycle; Terraform only manages Per-App Group Nesting & DNS/SSO.
+  #   - TERRAFORM_GRAPH (Legacy): Scrapes Microsoft Graph users/groups into Terraform state.
+  export IDENTITY_SYNC_MODE="${env_sync_mode:-${IDENTITY_SYNC_MODE:-GCP_DIRECTORY_SYNC}}"
+  export ENABLE_GCP_DIRECTORY_SYNC="${ENABLE_GCP_DIRECTORY_SYNC:-true}"
+  export DIRECTORY_SYNC_MANAGED_GROUPS="${DIRECTORY_SYNC_MANAGED_GROUPS:-ge-service-desk-users,ge-finance-users,ge-hr-users,ge-skill-developers,all-ge-apps-users}"
+  export BOOTSTRAP_EMPTY_SYNC_GROUP_SHELLS="${BOOTSTRAP_EMPTY_SYNC_GROUP_SHELLS:-true}"
+  export AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS="${AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS:-true}"
+  export ENABLE_ENTRA_SCIM_PROVISIONING_JOB="${ENABLE_ENTRA_SCIM_PROVISIONING_JOB:-false}"
+  export GCP_DIRECTORY_SYNC_MANIFEST_OUT="${GCP_DIRECTORY_SYNC_MANIFEST_OUT:-}"
 
   export ENTRA_BULK_UPDATE_UPN_DOMAIN="${ENTRA_BULK_UPDATE_UPN_DOMAIN:-false}"
   export ENTRA_UPN_REWRITE_EXCLUDE_USERS="${ENTRA_UPN_REWRITE_EXCLUDE_USERS:-}"
@@ -473,25 +486,10 @@ _normalize_principal_email() {
   echo "${raw_email}"
 }
 
-sync_entra_entities_to_cloud_identity() {
-  log_phase "ENTRA-GRAPH-SYNC" "Discovering Entra ID Users, Groups & Memberships and preparing Cloud Identity Sync"
-  local tf_dir="${TF_IDENTITY_DIR_OVERRIDE:-${PROJECT_ROOT}/terraform-identity}"
-  local tfvars_out="${tf_dir}/identity_entities.auto.tfvars.json"
-
-  ensure_and_load_identity_secret_credentials
-  fetch_microsoft_graph_access_token
-  bulk_update_entra_upn_domain
-  provision_clean_entra_app_groups
-
-  # 1. Build app_group_mappings JSON array from ENTRA_TO_APP_GROUP_MAPPINGS
-  #    and ensure each target Per-App Cloud Identity group exists before Terraform lookup
+build_app_group_mappings_json() {
+  local existing_ci_groups="${1:-{}}"
   local mappings_json="[]"
   if [[ -n "${ENTRA_TO_APP_GROUP_MAPPINGS:-}" ]]; then
-    local existing_ci_groups="{}"
-    if [[ "${DRY_RUN:-false}" != "true" && -n "${CLOUD_IDENTITY_CUSTOMER_ID:-}" ]]; then
-      existing_ci_groups="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" "" "true" || echo '{}')"
-    fi
-
     IFS=',' read -r -a map_pairs <<< "${ENTRA_TO_APP_GROUP_MAPPINGS}"
     for pair in "${map_pairs[@]}"; do
       pair="$(echo "${pair}" | xargs)"
@@ -506,7 +504,7 @@ sync_entra_entities_to_cloud_identity() {
           local found_dst
           found_dst="$(echo "${existing_ci_groups}" | jq -r --arg em "${dst_app_group}" '.groups[]? | select((.groupKey.id | ascii_downcase) == ($em | ascii_downcase)) | .name' 2>/dev/null | head -n 1 || true)"
           if [[ -z "${found_dst}" ]]; then
-            log_info "Pre-creating target Per-App Cloud Identity group '${dst_app_group}' for group nesting..."
+            log_info "Pre-creating target Per-App Cloud Identity group '${dst_app_group}' for group nesting..." >&2
             local app_grp_payload
             app_grp_payload="$(jq -n \
               --arg parent "${CLOUD_IDENTITY_CUSTOMER_ID}" \
@@ -533,47 +531,16 @@ sync_entra_entities_to_cloud_identity() {
       fi
     done
   fi
+  printf '%s' "${mappings_json}"
+}
 
-  # 2. Query Entra Users (export Google Admin Console CSV + optional Cloud Identity Directory API sync)
-  local users_rc=0
-  local csv_out="${PROJECT_ROOT}/configs/cloud_identity_users.csv"
-  _ms_graph_request "GET" "https://graph.microsoft.com/v1.0/users?\$top=999&\$select=id,displayName,givenName,surname,userPrincipalName,mail,mailNickname,accountEnabled" || users_rc=$?
-  if [[ "${users_rc}" -eq 0 && "${DRY_RUN:-false}" != "true" ]]; then
-    echo "First Name [Required],Last Name [Required],Email Address [Required],Password [Required],Org Unit Path [Required],Change Password at Next Sign-In" > "${csv_out}"
-    while IFS= read -r u_obj; do
-      [[ -z "${u_obj}" ]] && continue
-      local upn given surname dname target_email
-      upn="$(echo "${u_obj}" | jq -r '.userPrincipalName // empty')"
-      [[ -z "${upn}" || "${upn}" == *"#EXT#"* ]] && continue
-      target_email="$(_normalize_principal_email "${upn}")"
-      given="$(echo "${u_obj}" | jq -r '.givenName // (.displayName | split(" ")[0]) // "Entra"')"
-      surname="$(echo "${u_obj}" | jq -r '.surname // (.displayName | split(" ")[-1]) // "User"')"
-      dname="$(echo "${u_obj}" | jq -r '.displayName // "Entra User"')"
-      echo "${given},${surname},${target_email},${CLOUD_IDENTITY_DEFAULT_TEMP_PASSWORD},/,False" >> "${csv_out}"
+configure_gcp_directory_sync_connector() {
+  log_phase "GCP-DIRECTORY-SYNC" "Configuring & Validating Google Cloud Identity Directory Sync for Microsoft Entra ID (${M365_TENANT_ID})"
 
-      if [[ "${SYNC_CLOUD_IDENTITY_USERS:-false}" == "true" ]]; then
-        local user_payload
-        user_payload="$(jq -n \
-          --arg email "${target_email}" \
-          --arg given "${given}" \
-          --arg family "${surname}" \
-          --arg full "${dname}" \
-          --arg pwd "${CLOUD_IDENTITY_DEFAULT_TEMP_PASSWORD}" \
-          --arg ext "${upn}" \
-          '{
-            primaryEmail: $email,
-            name: {givenName: $given, familyName: $family, fullName: $full},
-            password: $pwd,
-            changePasswordAtNextLogin: false,
-            externalIds: [{value: $ext, type: "login_id"}]
-          }')"
-        ge_curl_request "POST" "https://admin.googleapis.com/admin/directory/v1/users" "${user_payload}" "true" || true
-      fi
-    done < <(echo "${LAST_GRAPH_BODY}" | jq -c '.value[]? // empty')
-    log_ok "Exported Entra users bulk CSV to ${csv_out}."
-  fi
+  local manifest_out="${GCP_DIRECTORY_SYNC_MANIFEST_OUT:-${PROJECT_ROOT}/configs/gcp-directory-sync-config.json}"
+  mkdir -p "$(dirname "${manifest_out}")"
 
-  # 3. Query Entra Groups & Transitive Members
+  # 1. Verify Microsoft Graph Directory Sync readiness (Groups & Users endpoint access)
   local groups_url="https://graph.microsoft.com/v1.0/groups?\$top=999&\$select=id,displayName,description,mail,mailNickname,securityEnabled"
   if [[ -n "${ENTRA_GROUP_FILTER:-}" ]]; then
     local encoded_filter
@@ -581,71 +548,300 @@ sync_entra_entities_to_cloud_identity() {
     groups_url="${groups_url}&\$filter=${encoded_filter}"
   fi
 
-  local synced_groups_json="{}"
   local grp_rc=0
   _ms_graph_request "GET" "${groups_url}" || grp_rc=$?
+  local discovered_entra_groups="[]"
   if [[ "${grp_rc}" -eq 0 && "${DRY_RUN:-false}" != "true" ]]; then
-    while IFS= read -r g_obj; do
-      [[ -z "${g_obj}" ]] && continue
-      local gid gname gdesc gmail gnick group_email group_key
-      gid="$(echo "${g_obj}" | jq -r '.id // empty')"
-      gname="$(echo "${g_obj}" | jq -r '.displayName // empty')"
-      gdesc="$(echo "${g_obj}" | jq -r '.description // "Synchronized from Microsoft Entra ID"')"
-      gmail="$(echo "${g_obj}" | jq -r '.mail // empty')"
-      gnick="$(echo "${g_obj}" | jq -r '.mailNickname // empty')"
-      [[ -z "${gid}" || -z "${gname}" ]] && continue
-
-      if [[ -n "${gmail}" ]]; then
-        group_email="$(_normalize_principal_email "${gmail}")"
-      elif [[ -n "${gnick}" ]]; then
-        group_email="${gnick}@${SHARED_IDENTITY_DOMAIN}"
-      else
-        continue
-      fi
-
-      group_key="$(echo "${group_email%@*}" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9_-]/-/g')"
-
-      # Query transitive members for this group
-      local mem_rc=0
-      local members_arr="[]"
-      _ms_graph_request "GET" "https://graph.microsoft.com/v1.0/groups/${gid}/transitiveMembers?\$select=id,userPrincipalName,mail" || mem_rc=$?
-      if [[ "${mem_rc}" -eq 0 ]]; then
-        while IFS= read -r m_obj; do
-          [[ -z "${m_obj}" ]] && continue
-          local m_upn m_mail norm_mem
-          m_mail="$(echo "${m_obj}" | jq -r '.mail // empty')"
-          m_upn="$(echo "${m_obj}" | jq -r '.userPrincipalName // empty')"
-          norm_mem="$(_normalize_principal_email "${m_mail:-${m_upn}}")"
-          norm_mem="$(printf '%s' "${norm_mem}" | tr '[:upper:]' '[:lower:]')"
-          if [[ -n "${norm_mem}" ]]; then
-            members_arr="$(echo "${members_arr}" | jq -c --arg m "${norm_mem}" '. + [$m] | unique')"
-          fi
-        done < <(echo "${LAST_GRAPH_BODY}" | jq -c '.value[]? // empty')
-      fi
-
-      synced_groups_json="$(echo "${synced_groups_json}" | jq -c \
-        --arg k "${group_key}" \
-        --arg email "${group_email}" \
-        --arg dn "${gname}" \
-        --arg desc "${gdesc}" \
-        --argjson mems "${members_arr}" \
-        '. + {($k): {group_email: $email, display_name: $dn, description: $desc, members: $mems}}')"
-    done < <(echo "${LAST_GRAPH_BODY}" | jq -c '.value[]? // empty')
+    discovered_entra_groups="$(echo "${LAST_GRAPH_BODY}" | jq -c --arg dom "${SHARED_IDENTITY_DOMAIN}" '
+      [.value[]? | select(.mailNickname != null or .mail != null) | {
+        entra_object_id: .id,
+        display_name: .displayName,
+        mail_nickname: .mailNickname,
+        cloud_identity_group_email: ((.mail // ((.mailNickname // "group") + "@" + $dom)) | ascii_downcase)
+      }]' 2>/dev/null || echo '[]')"
   fi
 
+  # 2. Build managed group emails array from DIRECTORY_SYNC_MANAGED_GROUPS
+  local managed_groups_json="[]"
+  IFS=',' read -r -a mg_arr <<< "${DIRECTORY_SYNC_MANAGED_GROUPS:-}"
+  for mg in ${mg_arr[@]+"${mg_arr[@]}"}; do
+    mg="$(echo "${mg}" | xargs)"
+    [[ -z "${mg}" ]] && continue
+    local mg_email="${mg}"
+    if [[ "${mg_email}" != *"@"* ]]; then
+      mg_email="${mg_email}@${SHARED_IDENTITY_DOMAIN}"
+    fi
+    mg_email="$(printf '%s' "${mg_email}" | tr '[:upper:]' '[:lower:]')"
+    managed_groups_json="$(echo "${managed_groups_json}" | jq -c --arg g "${mg_email}" '. + [$g] | unique')"
+  done
+
+  # 3. Optional: Configure Microsoft Entra Outbound SCIM 2.0 Provisioning Job on Google Cloud Gallery App
+  local scim_job_status="MANAGED_BY_GCP_DIRECTORY_SYNC"
+  if [[ "${ENABLE_ENTRA_SCIM_PROVISIONING_JOB:-false}" == "true" ]]; then
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+      log_info "[DRY-RUN] Would configure Entra SCIM 2.0 Synchronization Job (templateId=googleCloud) targeting https://www.googleapis.com/admin/directory/v1"
+      scim_job_status="DRY_RUN_SCIM_JOB"
+    else
+      log_info "Checking Microsoft Entra ID Gallery App Service Principal for SCIM Synchronization Job..."
+      local sp_rc=0
+      _ms_graph_request "GET" "https://graph.microsoft.com/v1.0/servicePrincipals?\$filter=startswith(displayName,'Google%20Cloud')%20or%20endswith(displayName,'google-cloud-sso')&\$select=id,displayName" || sp_rc=$?
+      if [[ "${sp_rc}" -eq 0 ]]; then
+        local sp_id
+        sp_id="$(echo "${LAST_GRAPH_BODY}" | jq -r '.value[0].id // empty')"
+        if [[ -n "${sp_id}" ]]; then
+          local jobs_rc=0
+          _ms_graph_request "GET" "https://graph.microsoft.com/v1.0/servicePrincipals/${sp_id}/synchronization/jobs" || jobs_rc=$?
+          local job_id
+          job_id="$(echo "${LAST_GRAPH_BODY}" | jq -r '.value[0].id // empty' 2>/dev/null || true)"
+          if [[ -z "${job_id}" ]]; then
+            local create_job_payload='{"templateId":"gsuite"}'
+            _ms_graph_request "POST" "https://graph.microsoft.com/v1.0/servicePrincipals/${sp_id}/synchronization/jobs" "${create_job_payload}" || true
+            job_id="$(echo "${LAST_GRAPH_BODY}" | jq -r '.id // empty' 2>/dev/null || true)"
+          fi
+          if [[ -n "${job_id}" ]]; then
+            _ms_graph_request "POST" "https://graph.microsoft.com/v1.0/servicePrincipals/${sp_id}/synchronization/jobs/${job_id}/start" "" || true
+            scim_job_status="ACTIVE:${job_id}"
+            log_ok "Started Entra SCIM Provisioning Job '${job_id}' on Service Principal '${sp_id}'."
+          fi
+        fi
+      fi
+    fi
+  fi
+
+  # 4. Write declarative GCP Directory Sync Connector Specification JSON
+  jq -n \
+    --arg cust "${CLOUD_IDENTITY_CUSTOMER_ID}" \
+    --arg proj "${GCP_PROJECT_ID}" \
+    --arg dom "${SHARED_IDENTITY_DOMAIN}" \
+    --arg src_dom "${ENTRA_SOURCE_DOMAIN}" \
+    --arg tenant "${M365_TENANT_ID}" \
+    --arg client "${M365_CLIENT_ID}" \
+    --arg secret "projects/${GCP_PROJECT_ID}/secrets/${M365_SECRET_ID}/versions/latest" \
+    --arg ou "${SAML_TARGET_ORG_UNIT:-/}" \
+    --arg filter "${ENTRA_GROUP_FILTER:-startswith(mailNickname,'ge-')}" \
+    --arg scim_status "${scim_job_status}" \
+    --argjson managed_groups "${managed_groups_json}" \
+    --argjson discovered_groups "${discovered_entra_groups}" \
+    '{
+      schema_version: "1.0",
+      identity_sync_mode: "GCP_DIRECTORY_SYNC",
+      cloud_identity_customer_id: $cust,
+      gcp_project_id: $proj,
+      shared_identity_domain: $dom,
+      entra_source_domain: $src_dom,
+      external_directory_connection: {
+        directory_type: "MICROSOFT_ENTRA_ID",
+        tenant_id: $tenant,
+        oauth_client_id: $client,
+        secret_manager_credentials: $secret,
+        microsoft_graph_base_uri: "https://graph.microsoft.com/v1.0",
+        required_application_permissions: [
+          "User.Read.All",
+          "Group.Read.All",
+          "GroupMember.Read.All",
+          "Directory.Read.All",
+          "AdministrativeUnit.Read.All"
+        ],
+        scim_provisioning_status: $scim_status
+      },
+      user_sync_configuration: {
+        enabled: true,
+        target_org_unit: $ou,
+        attribute_mapping: {
+          primaryEmail: "userPrincipalName",
+          "name.givenName": "givenName",
+          "name.familyName": "surname",
+          "externalIds[0].value": "mailNickname"
+        },
+        conflict_resolution_policy: "MERGE_EXISTING_CLOUD_IDENTITY_USER",
+        deprovisioning_policy: "SUSPEND_USER_ON_ENTRA_DISABLE_OR_DELETE"
+      },
+      group_sync_configuration: {
+        enabled: true,
+        entra_odata_group_filter: $filter,
+        managed_group_emails: $managed_groups,
+        discovered_entra_groups: $discovered_groups
+      }
+    }' > "${manifest_out}"
+
+  log_ok "Wrote GCP Directory Sync connector specification to ${manifest_out}."
+  return 0
+}
+
+reconcile_directory_synced_groups() {
+  log_phase "DIRECTORY-SYNC-RECONCILE" "Verifying Directory-Synced Cloud Identity Groups & Generating Clean Per-App Group Mappings"
+  local tf_dir="${TF_IDENTITY_DIR_OVERRIDE:-${PROJECT_ROOT}/terraform-identity}"
+  local tfvars_out="${tf_dir}/identity_entities.auto.tfvars.json"
+
+  local existing_ci_groups="{}"
+  if [[ "${DRY_RUN:-false}" != "true" && -n "${CLOUD_IDENTITY_CUSTOMER_ID:-}" ]]; then
+    existing_ci_groups="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" "" "true" || echo '{}')"
+  fi
+
+  # 1. Verify that Directory-Synced Entra groups exist in Cloud Identity (or bootstrap empty Day-0 shells
+  #    so GCP Directory Sync merges into them and Day-0 Per-App group nesting succeeds immediately)
+  local verified_sync_count=0
+  local bootstrapped_shell_count=0
+  IFS=',' read -r -a mg_arr <<< "${DIRECTORY_SYNC_MANAGED_GROUPS:-}"
+  for mg in ${mg_arr[@]+"${mg_arr[@]}"}; do
+    mg="$(echo "${mg}" | xargs)"
+    [[ -z "${mg}" ]] && continue
+    local mg_email="${mg}"
+    if [[ "${mg_email}" != *"@"* ]]; then
+      mg_email="${mg_email}@${SHARED_IDENTITY_DOMAIN}"
+    fi
+    mg_email="$(printf '%s' "${mg_email}" | tr '[:upper:]' '[:lower:]')"
+
+    if [[ "${DRY_RUN:-false}" == "true" ]]; then
+      log_info "[DRY-RUN] Would verify Directory-Synced group '${mg_email}' in Cloud Identity (${CLOUD_IDENTITY_CUSTOMER_ID})"
+      verified_sync_count=$((verified_sync_count + 1))
+      continue
+    fi
+
+    local found_grp_name
+    found_grp_name="$(echo "${existing_ci_groups}" | jq -r --arg em "${mg_email}" '.groups[]? | select((.groupKey.id | ascii_downcase) == ($em | ascii_downcase)) | .name' 2>/dev/null | head -n 1 || true)"
+    if [[ -n "${found_grp_name}" ]]; then
+      verified_sync_count=$((verified_sync_count + 1))
+    elif [[ "${BOOTSTRAP_EMPTY_SYNC_GROUP_SHELLS:-true}" == "true" && -n "${CLOUD_IDENTITY_CUSTOMER_ID:-}" ]]; then
+      log_info "Bootstrapping Day-0 Cloud Identity group shell '${mg_email}' for GCP Directory Sync merge..."
+      local shell_payload
+      shell_payload="$(jq -n \
+        --arg parent "${CLOUD_IDENTITY_CUSTOMER_ID}" \
+        --arg email "${mg_email}" \
+        --arg dn "${mg_email%@*}" \
+        '{
+          parent: $parent,
+          groupKey: {id: $email},
+          displayName: $dn,
+          description: ("Managed by GCP Directory Sync from Microsoft Entra ID (" + $email + ")"),
+          labels: {
+            "cloudidentity.googleapis.com/groups.discussion_forum": "",
+            "cloudidentity.googleapis.com/groups.security": ""
+          }
+        }')"
+      ge_curl_request "POST" "https://cloudidentity.googleapis.com/v1/groups?initialGroupConfig=EMPTY" "${shell_payload}" "true" >/dev/null || true
+      bootstrapped_shell_count=$((bootstrapped_shell_count + 1))
+    else
+      log_warn "Group '${mg_email}' has not yet replicated via GCP Directory Sync."
+    fi
+  done
+
+  # 2. Build Per-App group mappings (ENTRA_TO_APP_GROUP_MAPPINGS)
+  local mappings_json
+  mappings_json="$(build_app_group_mappings_json "${existing_ci_groups}")"
+
+  # 3. Write identity_entities.auto.tfvars.json with synced_groups={} so GCP Directory Sync
+  #    owns User & Group memberships rather than Terraform state
   mkdir -p "${tf_dir}"
   jq -n \
-    --argjson groups "${synced_groups_json}" \
     --argjson mappings "${mappings_json}" \
     '{
-      synced_groups: $groups,
+      synced_groups: {},
       app_group_mappings: $mappings
     }' > "${tfvars_out}"
 
-  local group_count mapping_count
-  group_count="$(echo "${synced_groups_json}" | jq 'keys | length')"
+  local mapping_count
   mapping_count="$(echo "${mappings_json}" | jq 'length')"
-  log_ok "Generated ${tfvars_out} (SyncedGroups=${group_count}, AppGroupMappings=${mapping_count})."
+  log_ok "Directory Sync reconciliation complete (VerifiedGroups=${verified_sync_count}, BootstrappedDay0Shells=${bootstrapped_shell_count}, AppGroupMappings=${mapping_count}; Terraform synced_groups={} delegated to GCP Directory Sync)."
+  return 0
+}
+
+sync_ge_licenses_from_directory_sync() {
+  if [[ "${AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS:-true}" != "true" ]]; then
+    log_info "AUTO_ASSIGN_GE_LICENSES_FROM_SYNCED_GROUPS is false; skipping automatic GE UserStore license assignment."
+    return 0
+  fi
+
+  log_phase "DIRECTORY-SYNC-LICENSES" "Assigning Gemini Enterprise UserStore Licenses from Directory-Synced Cloud Identity Groups"
+  local license_url
+  license_url="$(ge_api_base_url "${GE_LOCATION:-global}" "v1alpha")/projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION:-global}/userStores/default_user_store:batchUpdateUserLicenses"
+
+  if [[ "${DRY_RUN:-false}" == "true" ]]; then
+    log_info "[DRY-RUN] Would inspect Cloud Identity memberships of (${DIRECTORY_SYNC_MANAGED_GROUPS}) and assign Gemini Enterprise licenses via ${license_url}"
+    return 0
+  fi
+
+  local existing_ci_groups
+  existing_ci_groups="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/groups?parent=${CLOUD_IDENTITY_CUSTOMER_ID}" "" "true" || echo '{}')"
+
+  local licensed_users_json="[]"
+  IFS=',' read -r -a mg_arr <<< "${DIRECTORY_SYNC_MANAGED_GROUPS:-}"
+  for mg in ${mg_arr[@]+"${mg_arr[@]}"}; do
+    mg="$(echo "${mg}" | xargs)"
+    [[ -z "${mg}" ]] && continue
+    local mg_email="${mg}"
+    if [[ "${mg_email}" != *"@"* ]]; then
+      mg_email="${mg_email}@${SHARED_IDENTITY_DOMAIN}"
+    fi
+    mg_email="$(printf '%s' "${mg_email}" | tr '[:upper:]' '[:lower:]')"
+
+    local grp_res_name
+    grp_res_name="$(echo "${existing_ci_groups}" | jq -r --arg em "${mg_email}" '.groups[]? | select((.groupKey.id | ascii_downcase) == ($em | ascii_downcase)) | .name' 2>/dev/null | head -n 1 || true)"
+    [[ -z "${grp_res_name}" ]] && continue
+
+    local mem_resp
+    mem_resp="$(ge_curl_request "GET" "https://cloudidentity.googleapis.com/v1/${grp_res_name}/memberships" "" "true" || echo '{}')"
+    while IFS= read -r mem_email; do
+      [[ -z "${mem_email}" ]] && continue
+      mem_email="$(printf '%s' "${mem_email}" | tr '[:upper:]' '[:lower:]')"
+      # Skip nested group principals
+      if [[ "${mem_email}" == ge-* || "${mem_email}" == *-app-users@* || "${mem_email}" == all-ge-apps-users@* ]]; then
+        continue
+      fi
+      licensed_users_json="$(echo "${licensed_users_json}" | jq -c --arg u "${mem_email}" '. + [$u] | unique')"
+    done < <(echo "${mem_resp}" | jq -r '.memberships[]?.preferredMemberKey.id // empty' 2>/dev/null || true)
+  done
+
+  local user_count
+  user_count="$(echo "${licensed_users_json}" | jq 'length')"
+  if [[ "${user_count}" -eq 0 ]]; then
+    log_info "No individual user memberships found in Directory-Synced groups yet; skipping UserStore license batch update."
+    return 0
+  fi
+
+  # Discover existing licenseConfig resource name if present on UserStore
+  local existing_lic_url existing_lic_resp license_cfg_name=""
+  existing_lic_url="$(ge_api_base_url "${GE_LOCATION:-global}" "v1alpha")/projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION:-global}/userStores/default_user_store/userLicenses?pageSize=50"
+  existing_lic_resp="$(ge_curl_request "GET" "${existing_lic_url}" "" "false" || echo '{}')"
+  license_cfg_name="$(echo "${existing_lic_resp}" | jq -r '.userLicenses[]? | select(.licenseConfig != null and .licenseConfig != "") | .licenseConfig' 2>/dev/null | head -n 1 || true)"
+
+  if [[ -z "${license_cfg_name}" ]]; then
+    log_info "No existing Gemini Enterprise licenseConfig detected on default_user_store (${user_count} Directory-Synced users ready)."
+    return 0
+  fi
+
+  local batch_payload
+  batch_payload="$(jq -n \
+    --arg cfg "${license_cfg_name}" \
+    --argjson users "${licensed_users_json}" \
+    '{
+      inlineSource: {
+        userLicenses: [
+          $users[] | {
+            userPrincipal: .,
+            licenseAssignmentState: "ASSIGNED",
+            licenseConfig: $cfg
+          }
+        ],
+        updateMask: {
+          paths: ["license_assignment_state", "license_config"]
+        }
+      }
+    }')"
+
+  ge_curl_request "POST" "${license_url}" "${batch_payload}" "false" >/dev/null || true
+  log_ok "Synchronized Gemini Enterprise UserStore licenses for ${user_count} Directory-Synced user(s)."
+  return 0
+}
+
+sync_entra_entities_to_cloud_identity() {
+  ensure_and_load_identity_secret_credentials
+  fetch_microsoft_graph_access_token
+  bulk_update_entra_upn_domain
+  provision_clean_entra_app_groups
+  configure_gcp_directory_sync_connector
+  reconcile_directory_synced_groups
+  sync_ge_licenses_from_directory_sync
   return 0
 }
 

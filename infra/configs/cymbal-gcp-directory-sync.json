@@ -1,0 +1,108 @@
+{
+  "schema_version": "1.0",
+  "identity_sync_mode": "GCP_DIRECTORY_SYNC",
+  "cloud_identity_customer_id": "customers/C00x1gdg6",
+  "gcp_project_id": "cymbal-app-514110",
+  "shared_identity_domain": "mohanrajs.demo.altostrat.com",
+  "entra_source_domain": "1771sp.onmicrosoft.com",
+  "external_directory_connection": {
+    "directory_type": "MICROSOFT_ENTRA_ID",
+    "tenant_id": "10a65113-9363-432b-bd99-a575f3337dd2",
+    "oauth_client_id": "dfee693a-c6cb-4ca7-b18c-2e78d41ea299",
+    "secret_manager_credentials": "projects/cymbal-app-514110/secrets/cymbal-m365-connector-credentials/versions/latest",
+    "microsoft_graph_base_uri": "https://graph.microsoft.com/v1.0",
+    "required_application_permissions": [
+      "User.Read.All",
+      "Group.Read.All",
+      "GroupMember.Read.All",
+      "Directory.Read.All",
+      "AdministrativeUnit.Read.All"
+    ],
+    "scim_provisioning_status": "MANAGED_BY_GCP_DIRECTORY_SYNC"
+  },
+  "user_sync_configuration": {
+    "enabled": true,
+    "target_org_unit": "orgUnits/03ph8a2z4ccykcf",
+    "attribute_mapping": {
+      "primaryEmail": "userPrincipalName",
+      "name.givenName": "givenName",
+      "name.familyName": "surname",
+      "externalIds[0].value": "mailNickname"
+    },
+    "conflict_resolution_policy": "MERGE_EXISTING_CLOUD_IDENTITY_USER",
+    "deprovisioning_policy": "SUSPEND_USER_ON_ENTRA_DISABLE_OR_DELETE"
+  },
+  "group_sync_configuration": {
+    "enabled": true,
+    "entra_odata_group_filter": "startswith(mailNickname,'ge-')",
+    "managed_group_emails": [
+      "all-ge-apps-users@mohanrajs.demo.altostrat.com",
+      "ge-finance-users@mohanrajs.demo.altostrat.com",
+      "ge-hr-users@mohanrajs.demo.altostrat.com",
+      "ge-service-desk-users@mohanrajs.demo.altostrat.com",
+      "ge-skill-developers@mohanrajs.demo.altostrat.com"
+    ],
+    "discovered_entra_groups": [
+      {
+        "entra_object_id": "02b18097-b4a5-45e9-917f-e26a4daf9223",
+        "display_name": "Gemini Finance App Users",
+        "mail_nickname": "ge-finance-users",
+        "cloud_identity_group_email": "ge-finance-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "351767a6-8e50-4850-89b7-a289365d91bb",
+        "display_name": "CYMBAL ge-finance-users",
+        "mail_nickname": "ge-finance-users",
+        "cloud_identity_group_email": "ge-finance-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "b3069bdf-7b05-46cf-8789-b2bb9c15c9e8",
+        "display_name": "Gemini HR App Users",
+        "mail_nickname": "ge-hr-users",
+        "cloud_identity_group_email": "ge-hr-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "2c53f3bd-4831-4619-bba0-8fb43fdf7d60",
+        "display_name": "CYMBAL ge-hr-users",
+        "mail_nickname": "ge-hr-users",
+        "cloud_identity_group_email": "ge-hr-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "f6a4a5af-20b7-4056-9e8a-249eba988623",
+        "display_name": "Gemini Marketing App Users",
+        "mail_nickname": "ge-marketing-users",
+        "cloud_identity_group_email": "ge-marketing-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "b9ba5693-7ac3-4af8-9773-ac693bd6d4ed",
+        "display_name": "Gemini Ops App Users",
+        "mail_nickname": "ge-ops-users",
+        "cloud_identity_group_email": "ge-ops-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "dd7451b4-3e9c-4973-86ec-39b8da219625",
+        "display_name": "Gemini Sales App Users",
+        "mail_nickname": "ge-sales-users",
+        "cloud_identity_group_email": "ge-sales-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "3eab6723-1f1d-405c-946a-d30a3513b9c2",
+        "display_name": "Gemini Service Desk App Users",
+        "mail_nickname": "ge-service-desk-users",
+        "cloud_identity_group_email": "ge-service-desk-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "34627a1f-855a-4f94-8c24-c22239ce4ba5",
+        "display_name": "CYMBAL ge-service-desk-users",
+        "mail_nickname": "ge-service-desk-users",
+        "cloud_identity_group_email": "ge-service-desk-users@mohanrajs.demo.altostrat.com"
+      },
+      {
+        "entra_object_id": "df9907cf-a686-49a8-9393-7590251d5360",
+        "display_name": "CYMBAL ge-skill-developers",
+        "mail_nickname": "ge-skill-developers",
+        "cloud_identity_group_email": "ge-skill-developers@mohanrajs.demo.altostrat.com"
+      }
+    ]
+  }
+}
