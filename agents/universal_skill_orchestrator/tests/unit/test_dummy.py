@@ -1,88 +1,51 @@
-# Copyright 2026 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     https://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-"""
-You can add your unit tests here.
-This is where you test your business logic, including agent functionality,
-data processing, and other core components of your application.
-"""
+"""Unit tests for the Universal Skill Orchestrator tools."""
 
-
-"""Unit tests for the Skill-Agnostic Universal Skill Orchestrator tools."""
-
-import json
+import asyncio
 
 try:
     from app.tools.skill_orchestration import (
-        execute_skill_script,
+        execute_python_equity_quant_forecast,
+        execute_python_sla_finops_analysis,
         execute_subskill,
         load_skill_bundle,
     )
 except ImportError:
     from agents.universal_skill_orchestrator.tools.skill_orchestration import (
-        execute_skill_script,
+        execute_python_equity_quant_forecast,
+        execute_python_sla_finops_analysis,
         execute_subskill,
         load_skill_bundle,
     )
 
 
-def test_skill_agnostic_bundle_and_script_execution() -> None:
-    """Verifies dynamic skill bundle loading and bundled Python script execution."""
-    bundle = load_skill_bundle(
-        "skill-rubric-benchmark-evaluator",
-        "cymbal-service-desk-app",
+def test_skill_bundle_and_governed_mcp_tools() -> None:
+    """Verifies dynamic skill bundle loading and governed MCP/ADK quantitative tools."""
+    bundle = asyncio.run(
+        load_skill_bundle(
+            "stock-deep-research-5yr-forecast-engine",
+            "cymbal-finance-app",
+        )
     )
-    assert bundle["skill_id"] == "skill-rubric-benchmark-evaluator"
-    assert "scripts/generate_eval_dataset.py" in bundle["bundled_scripts"]
-    assert "scripts/execute_skill_benchmark.py" in bundle["bundled_scripts"]
-    assert "scripts/report_rubric_scorecard.py" in bundle["bundled_scripts"]
+    assert bundle["skill_id"] == "stock-deep-research-5yr-forecast-engine"
+    assert "execute_python_equity_quant_forecast" in bundle["required_mcp_tools"]
 
-    sub_res = execute_subskill(
-        "sharepoint-policy-lookup",
-        "Retrieve AI Skill Governance rubrics",
+    sub_res = asyncio.run(
+        execute_subskill(
+            "sharepoint-policy-lookup",
+            "Retrieve Investment Committee WACC and SLA policies",
+        )
     )
-    assert sub_res["status"] == "SUBSKILL_LOADED"
+    assert sub_res["status"] == "completed"
 
-    stage1 = execute_skill_script(
-        "skill-rubric-benchmark-evaluator",
-        "scripts/generate_eval_dataset.py",
-        json.dumps(
-            {
-                "target_skill_id": "service-desk-major-incident-bridge",
-                "engine_id": "cymbal-service-desk-app",
-                "num_cases": 5,
-            }
-        ),
+    sla_res = asyncio.run(
+        execute_python_sla_finops_analysis("INC-2026-P1-089")
     )
-    assert stage1["status"] == "SCRIPT_EXECUTED"
-    dataset = stage1["script_output"]
-    assert len(dataset["eval_cases"]) == 5
+    assert sla_res["status"] == "completed"
+    assert sla_res["total_portfolio_sla_credit_usd"] == 107500.0
+    assert len(sla_res["sha256_sox_audit_digest"]) == 64
 
-    stage2 = execute_skill_script(
-        "skill-rubric-benchmark-evaluator",
-        "scripts/execute_skill_benchmark.py",
-        json.dumps({"dataset": dataset, "iterations": 6}),
+    eq_res = asyncio.run(
+        execute_python_equity_quant_forecast("NVDA")
     )
-    assert stage2["status"] == "SCRIPT_EXECUTED"
-    benchmark = stage2["script_output"]
-    assert "latency_profile" in benchmark
-
-    stage3 = execute_skill_script(
-        "skill-rubric-benchmark-evaluator",
-        "scripts/report_rubric_scorecard.py",
-        json.dumps({"dataset": dataset, "benchmark": benchmark}),
-    )
-    assert stage3["status"] == "SCRIPT_EXECUTED"
-    scorecard = stage3["script_output"]
-    assert scorecard["overall_weighted_score_100"] >= 90.0
-    assert len(scorecard["sha256_evaluation_certificate_digest"]) == 64
+    assert eq_res["status"] == "completed"
+    assert eq_res["investment_recommendation"]["rating"] == "STRONG BUY"

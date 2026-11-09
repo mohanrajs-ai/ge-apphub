@@ -318,30 +318,17 @@ def seed_composite_skills_catalog(session: orm.Session) -> list[str]:
             ],
             "owner_email": "equity-research@mohanrajs.demo.altostrat.com",
         },
-        {
-            "skill_id": "skill-rubric-benchmark-evaluator",
-            "display_name": "Enterprise Skill Rubric Benchmark, Dataset Generator & Optimization Evaluator (Universal Agent Exclusive)",
-            "description": (
-                "Meta-Evaluation composite skill that evaluates any target skill "
-                "against 6 weighted rubrics (Instruction Quality, Connector "
-                "Correctness, Multi-Turn Trajectory, Latency SLA, Token "
-                "Optimization, InfoSec Zero-Trust) by executing its 3 bundled "
-                "Python scripts (generate_eval_dataset.py, "
-                "execute_skill_benchmark.py, report_rubric_scorecard.py)."
-            ),
-            "path": (
-                _SKILLS_CATALOG_DIR
-                / "composite_skills"
-                / "skill-rubric-benchmark-evaluator"
-                / "SKILL.md"
-            ),
-            "sub_skills": [
-                "sharepoint-policy-lookup",
-                "m365-onedrive-artifact-finder",
-            ],
-            "owner_email": "ai-governance@mohanrajs.demo.altostrat.com",
-        },
     ]
+
+    # Clean up any deprecated conversational evaluation skill rows
+    for model_cls in (
+        db_models.GESkillRecord,
+        db_models.SkillWorkflowRecord,
+        db_models.SkillRegistryRecord,
+    ):
+        session.query(model_cls).filter_by(
+            skill_id="skill-rubric-benchmark-evaluator"
+        ).delete()
 
     seeded_ids: list[str] = []
     for item in catalog_defs:
@@ -789,12 +776,7 @@ class UniversalSkillOrchestratorService:
                 sub_skill_ids = list(manifest_data.get("sub_skills") or [])
 
         traces: list[models.SubSkillStepTrace] = []
-        bundled_scripts = self._discover_bundled_scripts(skill.skill_id)
-        execution_steps = (
-            sub_skill_ids
-            if sub_skill_ids
-            else ([] if bundled_scripts else [skill.skill_id])
-        )
+        execution_steps = sub_skill_ids if sub_skill_ids else [skill.skill_id]
 
         for idx, sub_id in enumerate(execution_steps, start=1):
             sub_row = (
@@ -847,17 +829,14 @@ class UniversalSkillOrchestratorService:
                 )
             )
 
-        if bundled_scripts:
-            script_traces = self._execute_bundled_skill_scripts(
-                session=session,
-                skill_id=skill.skill_id,
-                bundled_scripts=bundled_scripts,
-                start_step_index=len(traces) + 1,
-                user_prompt=payload.user_prompt,
-                engine_id=target_engine,
-                identity_mode=identity_mode,
-            )
-            traces.extend(script_traces)
+        mcp_trace = self._invoke_governed_mcp_quant_tool(
+            skill_id=skill.skill_id,
+            step_index=len(traces) + 1,
+            user_prompt=payload.user_prompt,
+            identity_mode=identity_mode,
+        )
+        if mcp_trace is not None:
+            traces.append(mcp_trace)
 
         synthesized_sections = "\n\n".join(
             f"### Step {t.step_index}: {t.sub_skill_display_name} "
@@ -889,7 +868,7 @@ class UniversalSkillOrchestratorService:
             calling_user_email=calling_user_email,
             identity_passthrough_mode=identity_mode,
             stream_assist_endpoint=endpoint,
-            is_composite_skill=bool(sub_skill_ids or bundled_scripts),
+            is_composite_skill=bool(sub_skill_ids or mcp_trace is not None),
             sub_skills_loaded=sub_skill_ids,
             sub_skill_traces=traces,
             final_response=final_response,
@@ -897,145 +876,77 @@ class UniversalSkillOrchestratorService:
             executed_at=_utc_now().isoformat(),
         )
 
-    def _discover_bundled_scripts(self, skill_id: str) -> list[pathlib.Path]:
-        """Discovers bundled Python scripts (`scripts/*.py`) inside a skill directory."""
-        for category in ("composite_skills", "subskills"):
-            skill_dir = _SKILLS_CATALOG_DIR / category / skill_id
-            if not skill_dir.exists():
-                continue
-            scripts_dir = skill_dir / "scripts"
-            if not scripts_dir.exists():
-                continue
-            manifest_path = skill_dir / "manifest.json"
-            if manifest_path.exists():
-                try:
-                    m = json.loads(manifest_path.read_text(encoding="utf-8"))
-                    ordered = []
-                    for rel in m.get("bundled_scripts") or []:
-                        cand = skill_dir / rel
-                        if cand.exists():
-                            ordered.append(cand)
-                    if ordered:
-                        return ordered
-                except Exception:
-                    pass
-            return sorted(scripts_dir.glob("*.py"))
-        return []
-
-    def _execute_bundled_skill_scripts(
+    def _invoke_governed_mcp_quant_tool(
         self,
-        session: orm.Session,
         skill_id: str,
-        bundled_scripts: list[pathlib.Path],
-        start_step_index: int,
+        step_index: int,
         user_prompt: str,
-        engine_id: str,
         identity_mode: str,
-    ) -> list[models.SubSkillStepTrace]:
-        """Executes bundled `scripts/*.py` files in isolated subprocesses and chains JSON state."""
-        traces: list[models.SubSkillStepTrace] = []
-        target_eval_skill = "service-desk-major-incident-bridge"
-        for row in session.query(db_models.GESkillRecord).all():
-            if row.skill_id != skill_id and row.skill_id.lower() in user_prompt.lower():
-                target_eval_skill = row.skill_id
-                break
-        target_row = (
-            session.query(db_models.GESkillRecord)
-            .filter_by(skill_id=target_eval_skill)
-            .one_or_none()
+    ) -> models.SubSkillStepTrace | None:
+        """Invokes governed MCP/ADK quantitative tools for composite financial/SLA skills."""
+        import asyncio
+        import sys as _sys
+
+        repo_root = str(_SKILLS_CATALOG_DIR.parent)
+        if repo_root not in _sys.path:
+            _sys.path.insert(0, repo_root)
+        from agents.universal_skill_orchestrator.app.tools import (
+            enterprise_mcp_tools,
         )
-        skill_meta = {
-            "skill_id": target_eval_skill,
-            "skill_name": target_row.display_name if target_row else target_eval_skill,
-            "sub_skills": list(target_row.sub_skills or []) if target_row else [],
-            "required_connectors": (
-                [
-                    c["connector_id"]
-                    for c in skill_eval_agent.extract_required_connectors(
-                        target_row.instruction
-                    )
-                ]
-                if target_row
-                else []
-            ),
-            "rendered_instruction": target_row.instruction if target_row else "",
-        }
 
-        shared_ctx: dict[str, Any] = {
-            "incident_id": "INC-2026-P1-089",
-            "include_histogram": True,
-            "ticker_or_company": user_prompt,
-            "wacc_pct": 9.5,
-            "terminal_growth_pct": 3.5,
-            "target_skill_id": target_eval_skill,
-            "skill_metadata": skill_meta,
-            "engine_id": engine_id,
-            "num_cases": 5,
-        }
-
-        for offset, script_file in enumerate(bundled_scripts):
-            step_idx = start_step_index + offset
-            proc = subprocess.run(
-                [sys.executable, str(script_file)],
-                input=json.dumps(shared_ctx),
-                text=True,
-                capture_output=True,
-                timeout=20.0,
-                check=False,
-            )
-            parsed: dict[str, Any] = {}
-            if proc.returncode == 0:
-                try:
-                    parsed = json.loads(proc.stdout)
-                except Exception:
-                    parsed = {"raw_stdout": proc.stdout[:1000]}
-            if "eval_cases" in parsed:
-                shared_ctx["dataset"] = parsed
-            if "latency_profile" in parsed:
-                shared_ctx["benchmark"] = parsed
-
-            summary_lines = [
-                f"[Bundled Skill Script `scripts/{script_file.name}` executed via `execute_skill_script` "
-                f"(Python {platform.python_version()})]"
-            ]
-            if "sha256_sox_audit_digest" in parsed:
-                summary_lines.append(
-                    f"• Total Portfolio SLA Liability: ${parsed.get('total_portfolio_sla_credit_usd', 0):,.2f} USD | "
-                    f"SOX Audit SHA-256 Digest: `{parsed.get('sha256_sox_audit_digest')}`"
-                )
-            elif "investment_recommendation" in parsed:
-                rec = parsed["investment_recommendation"]
-                summary_lines.append(
-                    f"• Equity Rating: **{rec.get('rating')}** (Score: {rec.get('overall_composite_score_100')}/100, "
-                    f"Target: ${rec.get('target_price_12m_usd')}) | "
-                    f"IC SHA-256 Digest: `{rec.get('sha256_investment_committee_audit_digest')}`"
-                )
-            elif "overall_weighted_score_100" in parsed:
-                summary_lines.append(
-                    f"#### Multi-Rubric Skill Evaluation Scorecard\n"
-                    f"• Evaluated Skill: `{parsed.get('target_skill_id')}` | "
-                    f"Weighted Score: **{parsed.get('overall_weighted_score_100')}/100** "
-                    f"({parsed.get('certification_tier')})\n"
-                    f"{parsed.get('ascii_rubric_scorecard_chart', '')}\n"
-                    f"• SHA-256 Evaluation Certificate: `{parsed.get('sha256_evaluation_certificate_digest')}`"
-                )
-            else:
-                summary_lines.append(json.dumps(parsed)[:500])
-
-            traces.append(
-                models.SubSkillStepTrace(
-                    step_index=step_idx,
-                    sub_skill_name=f"scripts/{script_file.name}",
-                    sub_skill_display_name=f"Bundled Skill Script (`scripts/{script_file.name}`)",
-                    sub_skill_input=user_prompt,
-                    status="PYTHON_CODE_EXECUTED",
-                    stream_assist_endpoint=(
-                        f"gs://cymbal-app-514110-skills-catalog/{skill_id}/scripts/{script_file.name}"
-                    ),
-                    identity_mode=identity_mode,
-                    output_summary="\n".join(summary_lines),
-                    connectors_invoked=["execute_skill_script"],
-                    latency_ms=45,
+        if skill_id == "sla-breach-financial-exposure-calculator":
+            res = asyncio.run(
+                enterprise_mcp_tools.execute_python_sla_finops_analysis(
+                    incident_id="INC-2026-P1-089",
+                    include_histogram=True,
                 )
             )
-        return traces
+            return models.SubSkillStepTrace(
+                step_index=step_index,
+                sub_skill_name="execute_python_sla_finops_analysis",
+                sub_skill_display_name=(
+                    "Governed MCP/ADK FinOps Tool (`execute_python_sla_finops_analysis`)"
+                ),
+                sub_skill_input=user_prompt,
+                status="PYTHON_CODE_EXECUTED",
+                stream_assist_endpoint=(
+                    "projects/457338748091/locations/us-central1/reasoningEngines/8050815728477011968"
+                ),
+                identity_mode=identity_mode,
+                output_summary=(
+                    f"[Governed MCP/ADK Tool `execute_python_sla_finops_analysis`]\n"
+                    f"• Total Portfolio SLA Liability: ${res['total_portfolio_sla_credit_usd']:,.2f} USD\n"
+                    f"• SOX Audit SHA-256 Digest: `{res['sha256_sox_audit_digest']}`"
+                ),
+                connectors_invoked=["execute_python_sla_finops_analysis"],
+                latency_ms=42,
+            )
+        if skill_id == "stock-deep-research-5yr-forecast-engine":
+            res = asyncio.run(
+                enterprise_mcp_tools.execute_python_equity_quant_forecast(
+                    ticker_or_company=user_prompt,
+                )
+            )
+            rec = res["investment_recommendation"]
+            return models.SubSkillStepTrace(
+                step_index=step_index,
+                sub_skill_name="execute_python_equity_quant_forecast",
+                sub_skill_display_name=(
+                    "Governed MCP/ADK Equity Forecast Tool (`execute_python_equity_quant_forecast`)"
+                ),
+                sub_skill_input=user_prompt,
+                status="PYTHON_CODE_EXECUTED",
+                stream_assist_endpoint=(
+                    "projects/457338748091/locations/us-central1/reasoningEngines/8050815728477011968"
+                ),
+                identity_mode=identity_mode,
+                output_summary=(
+                    f"[Governed MCP/ADK Tool `execute_python_equity_quant_forecast`]\n"
+                    f"• Equity Rating: **{rec['rating']}** (Score: {rec['overall_composite_score_100']}/100, "
+                    f"Target: ${rec['target_price_12m_usd']})\n"
+                    f"• IC SHA-256 Digest: `{rec['sha256_investment_committee_audit_digest']}`"
+                ),
+                connectors_invoked=["execute_python_equity_quant_forecast"],
+                latency_ms=48,
+            )
+        return None

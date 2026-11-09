@@ -205,18 +205,13 @@ ALL_SKILLS = [
     },
     {
         "skill_id": "sla-breach-financial-exposure-calculator",
-        "description": "Universal-Agent-Exclusive composite skill chaining M365 OneDrive telemetry, SharePoint SLA policy tables, and Outlook escalations with its bundled Python script (scripts/sla_finops_calculator.py via execute_skill_script) to compute exact p95/p99 latency, availability %, USD credit liability, and SHA-256 SOX audit digest.",
+        "description": "Universal-Agent-Exclusive composite skill chaining M365 OneDrive telemetry, SharePoint SLA policy tables, and Outlook escalations with the governed MCP/ADK FinOps tool (execute_python_sla_finops_analysis) to compute exact p95/p99 latency, availability %, USD credit liability, and SHA-256 SOX audit digest.",
         "md_path": repo_root / "skills_catalog/composite_skills/sla-breach-financial-exposure-calculator/SKILL.md",
     },
     {
         "skill_id": "stock-deep-research-5yr-forecast-engine",
-        "description": "Universal-Agent-Exclusive institutional equity research skill that accepts any stock ticker or company name, retrieves 5-year financial statements, performs deep Fundamental, Technical, and Sentiment analysis, forecasts next 5 years YoY growth via its bundled Python script (scripts/equity_quant_forecast.py via execute_skill_script), and outputs a Buy/Hold/Sell recommendation.",
+        "description": "Universal-Agent-Exclusive institutional equity research skill that accepts any stock ticker or company name, retrieves 5-year financial statements, performs deep Fundamental, Technical, and Sentiment analysis, forecasts next 5 years YoY growth via the governed MCP/ADK tool (execute_python_equity_quant_forecast), and outputs a Buy/Hold/Sell recommendation.",
         "md_path": repo_root / "skills_catalog/composite_skills/stock-deep-research-5yr-forecast-engine/SKILL.md",
-    },
-    {
-        "skill_id": "skill-rubric-benchmark-evaluator",
-        "description": "Universal-Agent-Exclusive Meta-Evaluation Skill that evaluates any target skill across 6 weighted rubrics (Instruction & Decomposition Quality, M365 Connector & Tool Correctness, Execution Latency SLAs, Token Optimization & Context Efficiency, Deterministic Output & Schema Fidelity, and Enterprise Security & OAuth Zero-Trust) using 3 bundled Python scripts (scripts/generate_eval_dataset.py, scripts/execute_skill_benchmark.py, scripts/report_rubric_scorecard.py).",
-        "md_path": repo_root / "skills_catalog/composite_skills/skill-rubric-benchmark-evaluator/SKILL.md",
     },
     {
         "skill_id": "m365-outlook-triage",
@@ -303,34 +298,23 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
         ),
         "sla-breach-financial-exposure-calculator": (
             "# SLA Breach & FinOps Financial Exposure Calculator (Universal Agent Exclusive Skill)\n\n"
-            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes `execute_skill_script` to run `scripts/sla_finops_calculator.py`.\n\n"
-            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_skill_script` (`scripts/sla_finops_calculator.py`)\n\n"
+            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes the governed MCP/ADK tool `execute_python_sla_finops_analysis`.\n\n"
+            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_python_sla_finops_analysis` (Governed MCP/ADK FinOps Tool)\n\n"
             "## Step-by-Step Workflow\n"
             f"1. **Sub-Skill 1 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for 24-hour p99 latency arrays in `API-Latency-p99-Metrics.xlsx`.\n"
             f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Gold/Platinum SLA credit formulas in `Enterprise-SLA-Policy-v4.2.docx`.\n"
             f"3. **Sub-Skill 3 (`m365-outlook-triage`)**: Query `{t_mail}` for customer SLA claims and ARR values.\n"
-            "4. **Bundled Script Execution (`execute_skill_script`)**: Run `scripts/sla_finops_calculator.py` to calculate exact p95/p99 latency, availability %, USD credit liability per customer, and SOX SHA-256 audit hash."
+            "4. **Governed Tool Execution (`execute_python_sla_finops_analysis`)**: Calculate exact p95/p99 latency, availability %, USD credit liability per customer, and SOX SHA-256 audit hash."
         ),
         "stock-deep-research-5yr-forecast-engine": (
             "# Institutional Stock Deep Research & 5-Year YoY Growth Forecaster (Universal Agent Exclusive Skill)\n\n"
-            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes `execute_skill_script` to run `scripts/equity_quant_forecast.py`.\n\n"
-            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_skill_script` (`scripts/equity_quant_forecast.py`)\n\n"
+            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because Step 4 invokes the governed MCP/ADK tool `execute_python_equity_quant_forecast`.\n\n"
+            f"## Required Tools\n- `{t_od}`\n- `{t_sp}`\n- `{t_mail}`\n- `execute_python_equity_quant_forecast` (Governed MCP/ADK Equity Forecast Tool)\n\n"
             "## Step-by-Step Workflow\n"
             f"1. **Sub-Skill 1 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for 5-year 10-K financial statement workbooks.\n"
             f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Investment Committee WACC, ROIC, and rating policies.\n"
             f"3. **Sub-Skill 3 (`m365-outlook-triage`)**: Query `{t_mail}` for recent analyst research notes and earnings commentary.\n"
-            "4. **Bundled Script Execution (`execute_skill_script`)**: Run `scripts/equity_quant_forecast.py` for 5-year historical financials (FY2021-FY2025), Fundamental/Technical/Sentiment analysis, 2-model chronological forecast (FY2026E-FY2030E), and Buy/Hold/Sell recommendation."
-        ),
-        "skill-rubric-benchmark-evaluator": (
-            "# Multi-Rubric Enterprise AI Skill Evaluator & Benchmark Engine (Universal Agent Exclusive Skill)\n\n"
-            "> **Note:** Requires Universal ADK Agent (`universal-skill-orchestrator`) because it executes 3 bundled Python scripts via `execute_skill_script` (`scripts/generate_eval_dataset.py`, `scripts/execute_skill_benchmark.py`, and `scripts/report_rubric_scorecard.py`).\n\n"
-            f"## Required Tools\n- `{t_sp}`\n- `{t_od}`\n- `execute_skill_script` (`scripts/generate_eval_dataset.py`, `scripts/execute_skill_benchmark.py`, `scripts/report_rubric_scorecard.py`)\n\n"
-            "## Step-by-Step Workflow\n"
-            f"1. **Sub-Skill 1 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for Enterprise AI Skill Governance & Quality Gates.\n"
-            f"2. **Sub-Skill 2 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for historical benchmark logs.\n"
-            "3. **Stage 1 Script (`scripts/generate_eval_dataset.py`)**: Call `execute_skill_script` to inspect the target skill's `SKILL.md` and generate the 6-rubric `EvaluationDataset` (`R1` Quality, `R2` Connector Correctness, `R3` Latency SLAs, `R4` Token Optimization, `R5` Determinism & Schema Fidelity, `R6` Zero-Trust Security).\n"
-            "4. **Stage 2 Script (`scripts/execute_skill_benchmark.py`)**: Call `execute_skill_script` to run multi-iteration benchmark profiling (`p50`/`p95`/`p99` latency, token savings %, connector accuracy).\n"
-            "5. **Stage 3 Script (`scripts/report_rubric_scorecard.py`)**: Call `execute_skill_script` to compute weighted rubric scores, ASCII Rubric Bar Chart, optimization recommendations, and SHA-256 Evaluation Certificate."
+            "4. **Governed Tool Execution (`execute_python_equity_quant_forecast`)**: Compute 5-year historical financials (FY2021-FY2025), Fundamental/Technical/Sentiment analysis, 2-model chronological forecast (FY2026E-FY2030E), and Buy/Hold/Sell recommendation."
         ),
         "m365-outlook-triage": (
             "# M365 Outlook Escalation Triage (Atomic Sub-Skill)\n\n"
@@ -383,7 +367,26 @@ if dry_run:
             print(f"  [DRY-RUN] Would upsert, enable & share {sk['skill_id']} on {a} (state=ENABLED, sharing=SHARED)")
     sys.exit(0)
 
-print("\n>>> [Step 1/3] Syncing Skills & Bundled Scripts to GCS Skill Catalog & GCP Agent Platform Skill Registry...")
+print("\n>>> [Step 0/3] Running Control-Plane 6-Rubric Pre-Deploy Benchmark Gate...")
+sys.path.insert(0, str(repo_root / "backend"))
+from skill_workflow_service.agents.skill_eval_agent import SkillEvaluationAdkAgent
+eval_gate_agent = SkillEvaluationAdkAgent()
+for sk_item in selected_skills:
+    md_text = sk_item["md_path"].read_text(encoding="utf-8")
+    bench = eval_gate_agent.run_six_rubric_benchmark(
+        skill_id=sk_item["skill_id"],
+        display_name=sk_item["skill_id"],
+        description=sk_item["description"],
+        instruction=md_text,
+    )
+    score_val = bench["overall_weighted_score_100"]
+    cert_sha = bench["sha256_evaluation_certificate_digest"][:16]
+    print(f"  [GATE PASS] {sk_item['skill_id']:40s} | 6-Rubric Score={score_val}/100 | Cert={cert_sha}...")
+    if score_val < 80.0:
+        print(f"[ERROR] Skill {sk_item['skill_id']} failed 6-Rubric Pre-Deploy Gate ({score_val} < 80.0)")
+        sys.exit(1)
+
+print("\n>>> [Step 1/3] Syncing Pure SKILL.md Bundles to GCS Skill Catalog & GCP Agent Platform Skill Registry...")
 
 gcs_bucket = f"{project_id}-skills-catalog"
 r_bkt = sess0.get(f"https://storage.googleapis.com/storage/v1/b/{gcs_bucket}", timeout=10.0)
@@ -426,12 +429,6 @@ for sk_item in ALL_SKILLS:
     sk_dir = sk_item["md_path"].parent
     manifest_file = sk_dir / "manifest.json"
     manifest_obj = json.loads(manifest_file.read_text(encoding="utf-8")) if manifest_file.exists() else {}
-    scripts_dir = sk_dir / "scripts"
-    bundled_scripts = (
-        sorted(f"scripts/{p.name}" for p in scripts_dir.glob("*.py") if p.is_file())
-        if scripts_dir.exists()
-        else []
-    )
     catalog_index_entries.append(
         {
             "skill_id": sk_item["skill_id"],
@@ -440,7 +437,7 @@ for sk_item in ALL_SKILLS:
             "description": sk_item["description"],
             "skill_type": manifest_obj.get("skill_type", "ATOMIC"),
             "sub_skills": manifest_obj.get("sub_skills", []),
-            "bundled_scripts": bundled_scripts,
+            "required_mcp_tools": manifest_obj.get("required_mcp_tools", []),
         }
     )
 upload_gcs_object(
@@ -465,17 +462,6 @@ def register_in_ar(sk):
             manifest_path.read_text(encoding="utf-8").encode("utf-8"),
             "application/json",
         )
-    scripts_dir = sk_dir / "scripts"
-    script_count = 0
-    if scripts_dir.exists():
-        for py_file in sorted(scripts_dir.glob("*.py")):
-            upload_gcs_object(
-                s,
-                f"{skill_id}/scripts/{py_file.name}",
-                py_file.read_text(encoding="utf-8").encode("utf-8"),
-                "text/x-python; charset=utf-8",
-            )
-            script_count += 1
 
     skill_res = f"projects/{project_id}/locations/{location}/skills/private-{skill_id}"
     r_get = s.get(f"{ar_endpoint}/v1alpha/{skill_res}", timeout=10.0)
@@ -485,9 +471,6 @@ def register_in_ar(sk):
             zf.writestr("SKILL.md", md_bytes)
             if manifest_path.exists():
                 zf.writestr("manifest.json", manifest_path.read_text(encoding="utf-8").encode("utf-8"))
-            if scripts_dir.exists():
-                for py_file in sorted(scripts_dir.glob("*.py")):
-                    zf.writestr(f"scripts/{py_file.name}", py_file.read_text(encoding="utf-8").encode("utf-8"))
         zip_b64 = base64.b64encode(buf.getvalue()).decode("ascii")
         s.post(
             f"{ar_endpoint}/v1alpha/projects/{project_id}/locations/{location}/skills?skillId={skill_id}",
@@ -522,7 +505,7 @@ def register_in_ar(sk):
         },
         timeout=10.0,
     )
-    return f"  [OK] Skill Registry & GCS (gs://{gcs_bucket}/{skill_id}, scripts={script_count}): {skill_res}"
+    return f"  [OK] Skill Registry & GCS (gs://{gcs_bucket}/{skill_id}): {skill_res}"
 
 
 with ThreadPoolExecutor(max_workers=8) as ex:
@@ -602,13 +585,13 @@ for app_id in target_engines:
         sess0.patch(
             f"{uni_url}?updateMask=description,sharingConfig,starterPrompts",
             json={
-                "description": "Skill-Agnostic Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry, GCS Skill & Script Catalog, M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive), and Dynamic Bundled Python Script Execution (execute_skill_script).",
+                "description": "Universal ADK Skill & Sub-Skill Orchestrator integrated with the AI Skill Hub Registry, M365 Connectors (Outlook Mail & Calendar, SharePoint, Teams, OneDrive), and Governed Quantitative MCP/ADK Tools.",
                 "sharingConfig": {"scope": "ALL_USERS"},
                 "starterPrompts": [
-                    {"text": "Run skill-rubric-benchmark-evaluator to evaluate service-desk-major-incident-bridge across all 6 rubrics (Quality, Connector Correctness, Latency, Token Optimization, Determinism, Security)."},
                     {"text": "Run stock-deep-research-5yr-forecast-engine for NVIDIA (NVDA) to analyze 5-year financial statements, Fundamental/Technical/Sentiment metrics, forecast next 5 years YoY growth, and get a Buy/Sell recommendation."},
-                    {"text": "Run sla-breach-financial-exposure-calculator using M365 sub-skills + bundled Python script execution to compute p99 latency, USD SLA credits, and a SHA-256 SOX audit hash."},
+                    {"text": "Run sla-breach-financial-exposure-calculator using M365 sub-skills + governed FinOps tool execution to compute p99 latency, USD SLA credits, and a SHA-256 SOX audit hash."},
                     {"text": "Run daily-morning-summary across my M365 Calendar, Outlook Email, and Teams mentions."},
+                    {"text": "Run service-desk-major-incident-bridge for P1 API latency across Teams war-room, SharePoint SOPs, and OneDrive RCA docs."},
                 ],
             },
             timeout=8.0,

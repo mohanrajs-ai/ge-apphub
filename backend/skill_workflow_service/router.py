@@ -10,6 +10,7 @@ from app import db_models
 from app import models
 from skill_workflow_service import engine as wf_engine
 from skill_workflow_service.agents import ge_discovery_llm
+from skill_workflow_service.agents import skill_eval_agent
 
 router = fastapi.APIRouter(tags=["skill-workflows"])
 
@@ -198,6 +199,32 @@ def seed_skills_catalog_endpoint(
     return models.SkillCatalogSeedResponse(
         seeded_skills=seeded,
         total_seeded=len(seeded),
+    )
+
+
+@router.post("/api/v1/skills/{skill_id}/benchmark")
+def benchmark_skill_control_plane(
+    skill_id: str,
+    engine_id: str = "cymbal-service-desk-app",
+    session: orm.Session = fastapi.Depends(database.get_db_session),
+) -> dict[str, object]:
+    """Control-Plane Endpoint: Runs the 6-Rubric Pre-Deploy Benchmark & generates `agents-cli eval` dataset."""
+    row = (
+        session.query(db_models.GESkillRecord)
+        .filter_by(skill_id=skill_id)
+        .one_or_none()
+    )
+    if row is None:
+        raise fastapi.HTTPException(
+            status_code=404, detail=f"Skill '{skill_id}' not found."
+        )
+    eval_agent = skill_eval_agent.SkillEvaluationAdkAgent()
+    return eval_agent.run_six_rubric_benchmark(
+        skill_id=row.skill_id,
+        display_name=row.display_name,
+        description=row.description,
+        instruction=row.instruction,
+        engine_id=engine_id or row.engine_id,
     )
 
 

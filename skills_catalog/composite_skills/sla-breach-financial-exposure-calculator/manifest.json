@@ -2,14 +2,14 @@
   "skill_name": "sla-breach-financial-exposure-calculator",
   "skill_type": "composite",
   "execution_runtime": "universal_adk_agent_only",
-  "description": "Chains M365 OneDrive telemetry, SharePoint SLA policy tables, and Outlook escalations with its bundled Python script (`scripts/sla_finops_calculator.py`) to calculate exact p95/p99 latency, contractual availability %, USD SLA credit liability, and a cryptographic SHA-256 SOX audit digest.",
+  "description": "Chains M365 OneDrive telemetry, SharePoint SLA policy tables, and Outlook escalations with the governed MCP/ADK quantitative tool (`execute_python_sla_finops_analysis`) to calculate exact p95/p99 latency, contractual availability %, USD SLA credit liability, and a cryptographic SHA-256 SOX audit digest.",
   "required_connectors": [
     "m365-onedrive-connector",
     "m365-sharepoint-connector",
     "m365-outlook-connector"
   ],
-  "bundled_scripts": [
-    "scripts/sla_finops_calculator.py"
+  "required_mcp_tools": [
+    "execute_python_sla_finops_analysis"
   ],
   "sub_skills": [
     "m365-onedrive-artifact-finder",

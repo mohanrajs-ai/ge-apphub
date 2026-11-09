@@ -1,13 +1,16 @@
-#!/usr/bin/env python3
-"""Bundled Skill Script: 5-Year Financial Statement Analysis, ML Forecasting & Buy/Sell Engine."""
+"""Governed Enterprise Quantitative & FinOps MCP/ADK Tools for Universal Skill Orchestrator."""
 
 import hashlib
 import json
 import math
 import platform
 import statistics
-import sys
 from typing import Any
+
+try:
+    from google.adk.tools.tool_context import ToolContext
+except ImportError:
+    ToolContext = Any  # type: ignore[misc,assignment]
 
 _EQUITY_PROFILES: dict[str, dict[str, Any]] = {
     "NVDA": {
@@ -243,12 +246,125 @@ def _resolve_equity_profile(ticker_or_company: str) -> dict[str, Any]:
     }
 
 
-def run_equity_analysis(
-    ticker_or_company: str = "NVDA",
+async def execute_python_sla_finops_analysis(
+    incident_id: str,
+    include_histogram: bool = True,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Governed MCP/ADK Tool: Computes exact SLA latency percentiles, USD credit liability, and SOX SHA-256 digest."""
+    _ = tool_context
+    hourly_p99_ms = [
+        182, 185, 190, 188, 194, 210, 4120, 4200,
+        3890, 2950, 1420, 310, 195, 184, 180, 178,
+        181, 183, 179, 182, 185, 180, 177, 180,
+    ]
+    sla_threshold_ms = 500
+    breach_hours = [ms for ms in hourly_p99_ms if ms > sla_threshold_ms]
+    breach_minutes = len(breach_hours) * 14.5
+    total_minutes_month = 30 * 24 * 60
+    monthly_uptime_pct = round(
+        ((total_minutes_month - breach_minutes) / total_minutes_month) * 100.0,
+        4,
+    )
+
+    sorted_ms = sorted(hourly_p99_ms)
+    p50_ms = round(statistics.median(sorted_ms), 2)
+    p95_idx = min(len(sorted_ms) - 1, math.ceil(0.95 * len(sorted_ms)) - 1)
+    p99_idx = min(len(sorted_ms) - 1, math.ceil(0.99 * len(sorted_ms)) - 1)
+    p95_ms = float(sorted_ms[p95_idx])
+    p99_ms = float(sorted_ms[p99_idx])
+    mean_ms = round(statistics.mean(sorted_ms), 2)
+    stdev_ms = round(statistics.stdev(sorted_ms), 2)
+
+    tenants = [
+        {
+            "customer": "Contoso Ltd.",
+            "tier": "Platinum",
+            "arr_usd": 2400000.0,
+            "monthly_fee_usd": 200000.0,
+            "sla_guarantee_pct": 99.95,
+            "credit_rate_pct": 25.0 if monthly_uptime_pct < 99.90 else 15.0,
+        },
+        {
+            "customer": "Fabrikam Financial",
+            "tier": "Gold",
+            "arr_usd": 1800000.0,
+            "monthly_fee_usd": 150000.0,
+            "sla_guarantee_pct": 99.90,
+            "credit_rate_pct": 25.0 if monthly_uptime_pct < 99.90 else 10.0,
+        },
+        {
+            "customer": "Northwind Traders",
+            "tier": "Gold",
+            "arr_usd": 960000.0,
+            "monthly_fee_usd": 80000.0,
+            "sla_guarantee_pct": 99.90,
+            "credit_rate_pct": 25.0 if monthly_uptime_pct < 99.90 else 10.0,
+        },
+    ]
+
+    exposure_rows: list[dict[str, Any]] = []
+    total_credit_usd = 0.0
+    for t in tenants:
+        credit_usd = round(
+            t["monthly_fee_usd"] * (t["credit_rate_pct"] / 100.0), 2
+        )
+        total_credit_usd = round(total_credit_usd + credit_usd, 2)
+        exposure_rows.append({**t, "calculated_sla_credit_usd": credit_usd})
+
+    canonical_payload = {
+        "incident_id": incident_id or "INC-2026-P1-089",
+        "monthly_uptime_pct": monthly_uptime_pct,
+        "p50_ms": p50_ms,
+        "p95_ms": p95_ms,
+        "p99_ms": p99_ms,
+        "total_credit_usd": total_credit_usd,
+        "exposure_rows": exposure_rows,
+    }
+    canonical_json = json.dumps(
+        canonical_payload, sort_keys=True, separators=(",", ":")
+    )
+    sox_sha256 = hashlib.sha256(canonical_json.encode("utf-8")).hexdigest()
+
+    histogram_lines: list[str] = []
+    if include_histogram:
+        for idx, ms in enumerate(hourly_p99_ms):
+            bars = max(1, min(20, int(round(ms / 220.0))))
+            marker = " [SLA BREACH]" if ms > sla_threshold_ms else ""
+            histogram_lines.append(
+                f"H{idx:02d}: {'█' * bars} {ms}ms{marker}"
+            )
+
+    return {
+        "status": "completed",
+        "execution_runtime": f"Vertex AI ReasoningEngine Python {platform.python_version()}",
+        "incident_id": incident_id or "INC-2026-P1-089",
+        "telemetry_summary": {
+            "sample_hours": len(hourly_p99_ms),
+            "breach_windows_count": len(breach_hours),
+            "breach_duration_minutes": breach_minutes,
+            "monthly_uptime_pct": monthly_uptime_pct,
+            "p50_latency_ms": p50_ms,
+            "p95_latency_ms": p95_ms,
+            "p99_latency_ms": p99_ms,
+            "mean_latency_ms": mean_ms,
+            "stdev_latency_ms": stdev_ms,
+        },
+        "tenant_financial_exposure": exposure_rows,
+        "total_portfolio_sla_credit_usd": total_credit_usd,
+        "ascii_latency_histogram": "\n".join(histogram_lines),
+        "sha256_sox_audit_digest": sox_sha256,
+    }
+
+
+async def execute_python_equity_quant_forecast(
+    ticker_or_company: str,
     wacc_pct: float = 9.5,
     terminal_growth_pct: float = 3.5,
+    tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
-    """Executes 5-year financial statement analysis, ML growth forecasting & Buy/Sell valuation."""
+    """Governed MCP/ADK Tool: Runs 5-Year Financial Statement Analysis, ML Forecasting & Buy/Sell Engine."""
+    _ = tool_context
     prof = _resolve_equity_profile(ticker_or_company)
     wacc = max(0.06, float(wacc_pct or 9.5) / 100.0)
     term_g = min(wacc - 0.02, max(0.02, float(terminal_growth_pct or 3.5) / 100.0))
@@ -262,7 +378,11 @@ def run_equity_analysis(
     financial_statements_5yr: list[dict[str, Any]] = []
     hist_yoy_growths: list[float] = []
     for i, yr in enumerate(hist_years):
-        yoy_rev = round(((revs[i] - revs[i - 1]) / revs[i - 1]) * 100.0, 2) if i > 0 else None
+        yoy_rev = (
+            round(((revs[i] - revs[i - 1]) / revs[i - 1]) * 100.0, 2)
+            if i > 0
+            else None
+        )
         if yoy_rev is not None:
             hist_yoy_growths.append(yoy_rev)
         eps = round(nis[i] / shares, 2)
@@ -315,7 +435,9 @@ def run_equity_analysis(
 
     recent_yoy = (revs[4] - revs[3]) / revs[3]
     cagr_rate = rev_cagr_5yr_pct / 100.0
-    initial_f_rate = min(0.38, max(0.06, 0.50 * min(recent_yoy, cagr_rate) + 0.50 * target_decay_rate))
+    initial_f_rate = min(
+        0.38, max(0.06, 0.50 * min(recent_yoy, cagr_rate) + 0.50 * target_decay_rate)
+    )
 
     forecast_years = ["FY2026E", "FY2027E", "FY2028E", "FY2029E", "FY2030E"]
     forecast_5yr: list[dict[str, Any]] = []
@@ -417,7 +539,12 @@ def run_equity_analysis(
     )
     growth_score = min(
         98.0,
-        round(45.0 + min(35.0, forecast_rev_cagr_5yr_pct * 1.6) + min(18.0, max(0.0, upside_pct * 0.6)), 1),
+        round(
+            45.0
+            + min(35.0, forecast_rev_cagr_5yr_pct * 1.6)
+            + min(18.0, max(0.0, upside_pct * 0.6)),
+            1,
+        ),
     )
     composite_score = round(
         0.45 * fund_score + 0.25 * growth_score + 0.15 * tech_score + 0.15 * sentiment_score,
@@ -433,8 +560,12 @@ def run_equity_analysis(
     else:
         rating = "SELL"
 
-    all_pts = [(hist_years[i], revs[i], hist_yoy_growths[i - 1] if i > 0 else 0.0) for i in range(5)] + [
-        (f["fiscal_year"], f["projected_revenue_usd_b"], f["yoy_revenue_growth_pct"]) for f in forecast_5yr
+    all_pts = [
+        (hist_years[i], revs[i], hist_yoy_growths[i - 1] if i > 0 else 0.0)
+        for i in range(5)
+    ] + [
+        (f["fiscal_year"], f["projected_revenue_usd_b"], f["yoy_revenue_growth_pct"])
+        for f in forecast_5yr
     ]
     max_rev = max(r for _, r, _ in all_pts)
     chart_lines = []
@@ -458,8 +589,8 @@ def run_equity_analysis(
     ).hexdigest()
 
     return {
-        "script": "scripts/equity_quant_forecast.py",
-        "python_version": platform.python_version(),
+        "status": "completed",
+        "execution_runtime": f"Vertex AI ReasoningEngine Python {platform.python_version()}",
         "equity_overview": {
             "ticker": prof["ticker"],
             "company_name": prof["company_name"],
@@ -495,9 +626,17 @@ def run_equity_analysis(
             "current_price_usd": cur_price,
             "sma_50d_usd": sma50,
             "sma_200d_usd": sma200,
-            "trend_regime": "Bullish Golden Cross (Price > 50d SMA > 200d SMA)" if golden_cross else "Consolidation / Neutral",
+            "trend_regime": (
+                "Bullish Golden Cross (Price > 50d SMA > 200d SMA)"
+                if golden_cross
+                else "Consolidation / Neutral"
+            ),
             "rsi_14d": rsi14,
-            "rsi_signal": "Bullish Momentum (Non-Overbought)" if 50.0 <= rsi14 < 70.0 else "Neutral",
+            "rsi_signal": (
+                "Bullish Momentum (Non-Overbought)"
+                if 50.0 <= rsi14 < 70.0
+                else "Neutral"
+            ),
             "macd_line": prof["macd_line"],
             "macd_signal": prof["macd_signal"],
             "macd_histogram": macd_hist,
@@ -545,14 +684,3 @@ def run_equity_analysis(
             "sha256_investment_committee_audit_digest": ic_sha256,
         },
     }
-
-
-if __name__ == "__main__":
-    raw = sys.stdin.read().strip() if not sys.stdin.isatty() else "{}"
-    payload = json.loads(raw or "{}")
-    result = run_equity_analysis(
-        ticker_or_company=payload.get("ticker_or_company", "NVDA"),
-        wacc_pct=float(payload.get("wacc_pct", 9.5)),
-        terminal_growth_pct=float(payload.get("terminal_growth_pct", 3.5)),
-    )
-    print(json.dumps(result, indent=2))

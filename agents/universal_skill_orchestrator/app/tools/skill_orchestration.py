@@ -1,13 +1,9 @@
-"""Skill-Agnostic Dynamic Skill, Sub-Skill & Script Tools for the Universal ADK Orchestrator."""
+"""Dynamic Skill & Sub-Skill Tools for the Universal ADK Orchestrator."""
 
 from contextvars import ContextVar
 import json
 import os
 import pathlib
-import platform
-import subprocess
-import sys
-import tempfile
 import urllib.parse
 from typing import Any
 
@@ -19,6 +15,17 @@ try:
     from google.adk.tools.tool_context import ToolContext
 except ImportError:
     ToolContext = Any  # type: ignore[misc,assignment]
+
+try:
+    from app.tools.enterprise_mcp_tools import (
+        execute_python_equity_quant_forecast,
+        execute_python_sla_finops_analysis,
+    )
+except ImportError:
+    from agents.universal_skill_orchestrator.app.tools.enterprise_mcp_tools import (
+        execute_python_equity_quant_forecast,
+        execute_python_sla_finops_analysis,
+    )
 
 AUTH_ID = os.getenv("GE_USER_AUTH_ID", "ge-user-auth")
 APPHUB_API_BASE = os.getenv("APPHUB_API_BASE_URL", "http://localhost:8080")
@@ -32,7 +39,6 @@ current_ge_user_token: ContextVar[str | None] = ContextVar(
     default=None,
 )
 
-# Minimal fallback index used only if API, GCS, and local filesystem are all unreachable
 BUILTIN_M365_SKILL_REGISTRY: list[dict[str, Any]] = []
 
 
@@ -48,7 +54,7 @@ def _get_gcs_session() -> grequests.AuthorizedSession | None:
 
 
 def _read_gcs_object_text(object_path: str) -> str | None:
-    """Reads a text file (`SKILL.md`, `manifest.json`, or `scripts/*.py`) from GCS at runtime."""
+    """Reads a governed SKILL.md or manifest.json from GCS at runtime."""
     sess = _get_gcs_session()
     if sess is None:
         return None
@@ -97,19 +103,13 @@ def _load_local_skills_catalog() -> list[dict[str, Any]]:
                     manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
                 except Exception:
                     manifest = {}
-            scripts_dir = skill_dir / "scripts"
-            bundled_scripts = (
-                [f"scripts/{p.name}" for p in sorted(scripts_dir.glob("*.py"))]
-                if scripts_dir.exists()
-                else list(manifest.get("bundled_scripts") or [])
-            )
             records.append(
                 {
                     "skill_id": skill_id,
                     "skill_name": manifest.get("description") or skill_id,
                     "required_connectors": list(manifest.get("required_connectors") or []),
+                    "required_mcp_tools": list(manifest.get("required_mcp_tools") or []),
                     "sub_skills": list(manifest.get("sub_skills") or []),
-                    "bundled_scripts": bundled_scripts,
                     "rendered_instruction": md_file.read_text(encoding="utf-8"),
                 }
             )
@@ -129,11 +129,10 @@ def extract_forwarded_ge_user_token(state: dict[str, Any]) -> str | None:
     return None
 
 
-async def _fetch_registry_records(engine_id: str) -> list[dict[str, Any]]:
+async def _fetch_registry_records(engine_id: str = "") -> list[dict[str, Any]]:
     """Dynamically fetches governed skills from Skill Hub API, GCS Catalog, or local catalog."""
     records: list[dict[str, Any]] = []
 
-    # 1. Try AI Skill Hub Registry HTTP API
     explicit_api = os.getenv("APPHUB_API_BASE_URL", "").strip()
     if explicit_api:
         url = f"{explicit_api}/api/v1/skills/registry"
@@ -148,7 +147,6 @@ async def _fetch_registry_records(engine_id: str) -> list[dict[str, Any]]:
         except Exception:
             pass
 
-    # 2. Try GCS Skill Catalog (`gs://<SKILL_CATALOG_BUCKET>/catalog_index.json`)
     seen_ids = {str(r.get("skill_id", "")).lower() for r in records}
     raw_gcs_index = _read_gcs_object_text("catalog_index.json")
     if raw_gcs_index:
@@ -168,49 +166,39 @@ async def _fetch_registry_records(engine_id: str) -> list[dict[str, Any]]:
         except Exception:
             pass
 
-    # 3. Try local filesystem `skills_catalog/` (used in local dev & unit tests)
     for local_item in _load_local_skills_catalog():
         sid = str(local_item.get("skill_id", "")).lower()
         if sid and sid not in seen_ids:
             records.append(local_item)
             seen_ids.add(sid)
+        elif sid:
+            for existing in records:
+                if str(existing.get("skill_id", "")).lower() == sid:
+                    for key in ("required_mcp_tools", "required_connectors", "sub_skills", "rendered_instruction"):
+                        if not existing.get(key) and local_item.get(key):
+                            existing[key] = local_item[key]
+                    break
 
     return records
-
-
-def _fetch_script_source(skill_id: str, script_name: str) -> str | None:
-    """Dynamically fetches a skill's Python script (`scripts/*.py`) from GCS or local catalog."""
-    clean_name = pathlib.Path(script_name).name
-    rel_object = f"{skill_id}/scripts/{clean_name}"
-
-    # 1. Fetch from GCS Skill Catalog bucket at runtime
-    gcs_code = _read_gcs_object_text(rel_object)
-    if gcs_code:
-        return gcs_code
-
-    # 2. Fallback to local `skills_catalog/` in local dev / unit tests
-    catalog_dir = _find_local_catalog_dir()
-    if catalog_dir is not None:
-        for category in ("composite_skills", "subskills"):
-            cand = catalog_dir / category / skill_id / "scripts" / clean_name
-            if cand.exists() and cand.is_file():
-                return cand.read_text(encoding="utf-8")
-    return None
 
 
 async def load_skill_bundle(
     skill_name_or_id: str,
     engine_id: str,
-    tool_context: ToolContext,
+    tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
-    """Dynamically loads any published Skill, its Sub-Skills, and its bundled script manifest.
+    """Dynamically loads any published Skill, its Sub-Skills, and its required MCP/Connector bindings.
 
     Args:
         skill_name_or_id: Published skill ID or skill name in the Skill Registry.
         engine_id: Target Gemini Enterprise Engine ID where the skill runs.
         tool_context: ADK tool execution context holding session state.
     """
-    state_dict = tool_context.state.to_dict()
+    state_dict = (
+        tool_context.state.to_dict()
+        if tool_context is not None and hasattr(tool_context, "state")
+        else {}
+    )
     user_token = extract_forwarded_ge_user_token(state_dict)
     if user_token:
         current_ge_user_token.set(user_token)
@@ -226,7 +214,6 @@ async def load_skill_bundle(
             matched = item
             break
 
-    # If not in index yet, try direct GCS lookup `{skill_name_or_id}/SKILL.md`
     if not matched:
         direct_md = _read_gcs_object_text(f"{target}/SKILL.md")
         if direct_md:
@@ -237,7 +224,7 @@ async def load_skill_bundle(
                 "skill_name": manifest.get("skill_name") or target,
                 "sub_skills": manifest.get("sub_skills", []),
                 "required_connectors": manifest.get("required_connectors", []),
-                "bundled_scripts": manifest.get("bundled_scripts", []),
+                "required_mcp_tools": manifest.get("required_mcp_tools", []),
                 "rendered_instruction": direct_md,
             }
 
@@ -245,9 +232,7 @@ async def load_skill_bundle(
         return {
             "status": "not_found",
             "message": f"Skill '{skill_name_or_id}' not found in Skill Registry.",
-            "available_skills": [
-                r.get("skill_id") for r in records
-            ],
+            "available_skills": [r.get("skill_id") for r in records],
         }
 
     resolved_id = str(matched.get("skill_id") or skill_name_or_id)
@@ -264,15 +249,15 @@ async def load_skill_bundle(
         or _read_gcs_object_text(f"{resolved_id}/SKILL.md")
         or ""
     )
-    bundled_scripts = list(matched.get("bundled_scripts") or [])
 
-    tool_context.state["active_skill_id"] = resolved_id
-    tool_context.state["active_skill_name"] = skill_name
-    tool_context.state["active_skill_markdown"] = rendered_md
-    tool_context.state["active_engine_id"] = engine_id
-    tool_context.state["available_subskills_summary"] = ", ".join(
-        f"{r.get('skill_id')}" for r in records
-    )
+    if tool_context is not None and hasattr(tool_context, "state"):
+        tool_context.state["active_skill_id"] = resolved_id
+        tool_context.state["active_skill_name"] = skill_name
+        tool_context.state["active_skill_markdown"] = rendered_md
+        tool_context.state["active_engine_id"] = engine_id
+        tool_context.state["available_subskills_summary"] = ", ".join(
+            f"{r.get('skill_id')}" for r in records
+        )
 
     return {
         "status": "loaded",
@@ -280,7 +265,7 @@ async def load_skill_bundle(
         "skill_name": skill_name,
         "sub_skills": matched.get("sub_skills", []),
         "required_connectors": matched.get("required_connectors", []),
-        "bundled_scripts": bundled_scripts,
+        "required_mcp_tools": matched.get("required_mcp_tools", []),
         "instruction": rendered_md,
     }
 
@@ -288,7 +273,7 @@ async def load_skill_bundle(
 async def execute_subskill(
     subskill_name_or_id: str,
     task_input: str,
-    tool_context: ToolContext,
+    tool_context: ToolContext | None = None,
 ) -> dict[str, Any]:
     """Dynamically loads and executes a child sub-skill as the calling GE user.
 
@@ -297,7 +282,11 @@ async def execute_subskill(
         task_input: Specific task prompt and context for the sub-skill.
         tool_context: ADK tool execution context holding session state.
     """
-    state_dict = tool_context.state.to_dict()
+    state_dict = (
+        tool_context.state.to_dict()
+        if tool_context is not None and hasattr(tool_context, "state")
+        else {}
+    )
     user_token = extract_forwarded_ge_user_token(state_dict)
     if user_token:
         current_ge_user_token.set(user_token)
@@ -314,7 +303,6 @@ async def execute_subskill(
     sub_id = str(loaded.get("skill_id") or "")
     connectors = list(loaded.get("required_connectors") or [])
 
-    # Grounded connector synthesis per connector type
     grounded_outputs = {
         "m365-calendar-briefing": (
             "[M365 Outlook Calendar Connector Grounded Output]\n"
@@ -359,126 +347,3 @@ async def execute_subskill(
         ),
         "executed_as_ge_user": bool(user_token),
     }
-
-
-async def execute_skill_script(
-    skill_id: str,
-    script_name: str,
-    script_args_json: str,
-    tool_context: ToolContext,
-) -> dict[str, Any]:
-    """Dynamically fetches a skill's bundled Python script (`scripts/*.py`) from the Registry/GCS and executes it.
-
-    The Universal Orchestrator Agent contains NO hardcoded skill scripts. At runtime,
-    this tool downloads `<skill_id>/scripts/<script_name>` from the Skill Registry
-    storage bucket (`gs://<SKILL_CATALOG_BUCKET>`), executes it in an isolated
-    Python subprocess with `script_args_json` passed via stdin, and returns the
-    parsed JSON output.
-
-    Args:
-        skill_id: Skill ID that owns the script (e.g. 'skill-rubric-benchmark-evaluator').
-        script_name: Script path or filename (e.g. 'scripts/generate_eval_dataset.py').
-        script_args_json: JSON string of arguments passed via stdin to the script.
-        tool_context: ADK tool execution context holding session state.
-    """
-    state_dict = tool_context.state.to_dict()
-    user_token = extract_forwarded_ge_user_token(state_dict)
-    if user_token:
-        current_ge_user_token.set(user_token)
-
-    clean_script = pathlib.Path(script_name).name
-    script_source = _fetch_script_source(skill_id=skill_id.strip(), script_name=clean_script)
-    if not script_source:
-        return {
-            "status": "error",
-            "skill_id": skill_id,
-            "script_name": f"scripts/{clean_script}",
-            "message": (
-                f"Script 'scripts/{clean_script}' for skill '{skill_id}' was not found in "
-                f"GCS bucket 'gs://{SKILL_CATALOG_BUCKET}/{skill_id}/scripts/{clean_script}' "
-                "or local skills_catalog."
-            ),
-        }
-
-    tmp_path: str | None = None
-    try:
-        try:
-            args_dict = json.loads(script_args_json or "{}")
-            if not isinstance(args_dict, dict):
-                args_dict = {"value": args_dict}
-        except Exception:
-            args_dict = {}
-
-        if "dataset" not in args_dict and "last_script_dataset" in state_dict:
-            args_dict["dataset"] = state_dict["last_script_dataset"]
-        if "benchmark" not in args_dict and "last_script_benchmark" in state_dict:
-            args_dict["benchmark"] = state_dict["last_script_benchmark"]
-        if "target_skill_id" in args_dict and not args_dict.get("skill_metadata"):
-            t_sid = str(args_dict["target_skill_id"]).strip()
-            t_md = _read_gcs_object_text(f"{t_sid}/SKILL.md") or ""
-            t_man_raw = _read_gcs_object_text(f"{t_sid}/manifest.json")
-            t_man = json.loads(t_man_raw) if t_man_raw else {}
-            if not t_md:
-                for rec in _load_local_skills_catalog():
-                    if rec.get("skill_id") == t_sid:
-                        t_md = str(rec.get("rendered_instruction") or "")
-                        t_man = rec
-                        break
-            args_dict["skill_metadata"] = {
-                "skill_id": t_sid,
-                "skill_name": t_man.get("display_name") or t_man.get("skill_name") or t_sid,
-                "sub_skills": t_man.get("sub_skills", []),
-                "required_connectors": t_man.get("required_connectors", []),
-                "rendered_instruction": t_md,
-            }
-
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            suffix=f"__{clean_script}",
-            delete=False,
-        ) as tmp_file:
-            tmp_file.write(script_source)
-            tmp_path = tmp_file.name
-
-        proc = subprocess.run(
-            [sys.executable, tmp_path],
-            input=json.dumps(args_dict),
-            text=True,
-            capture_output=True,
-            timeout=25.0,
-            check=False,
-        )
-        if proc.returncode != 0:
-            return {
-                "status": "error",
-                "skill_id": skill_id,
-                "executed_script": f"scripts/{clean_script}",
-                "returncode": proc.returncode,
-                "stderr": proc.stderr[:1200],
-            }
-        try:
-            parsed_out = json.loads(proc.stdout)
-        except Exception:
-            parsed_out = {"raw_stdout": proc.stdout[:2500]}
-
-        if isinstance(parsed_out, dict):
-            if "eval_cases" in parsed_out:
-                tool_context.state["last_script_dataset"] = parsed_out
-            if "latency_profile" in parsed_out:
-                tool_context.state["last_script_benchmark"] = parsed_out
-
-        return {
-            "status": "completed",
-            "skill_id": skill_id,
-            "executed_script": f"scripts/{clean_script}",
-            "source_origin": f"gs://{SKILL_CATALOG_BUCKET}/{skill_id}/scripts/{clean_script}",
-            "python_version": platform.python_version(),
-            "output": parsed_out,
-        }
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
-            try:
-                os.remove(tmp_path)
-            except OSError:
-                pass
