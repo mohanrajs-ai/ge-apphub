@@ -7,10 +7,12 @@
 #   - Phase 0C: GCP APIs & Remote Terraform State Bucket (ENABLE_PHASE_0C_GCP_FOUNDATION)
 #   - Phase 0B: Google Admin & Cloud Identity Bootstrap (ENABLE_PHASE_0B_GOOGLE_ADMIN)
 #   - Phase 0A: Microsoft Entra ID OAuth + 49 Scopes + SAML Gallery App (ENABLE_PHASE_0A_ENTRA_BOOTSTRAP)
+#   - Phase 0D: ServiceNow Instance Bootstrap — User, Roles, OAuth 2.0 & Secret Sync (ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP)
 #   - Phase 1A: GCP Directory Sync Config & GE License Sync (ENABLE_PHASE_1A_DIRECTORY_SYNC)
 #   - Phase 1B: Cloud Identity Per-App Group Nesting & SAML Handshake (ENABLE_PHASE_1B_IDENTITY_TERRAFORM)
 #   - Phase 1C: Optional Sandbox CSV Group Membership Seeding (ENABLE_PHASE_1C_DEMO_CSV_SEED)
 #   - Phase 2 : Shared M365 Connectors — SharePoint, OneDrive, Outlook, Teams (ENABLE_PHASE_2_M365_CONNECTORS)
+#   - Phase 2B: Shared ServiceNow Connector — KB, Incidents, Catalog Items & Actions (ENABLE_PHASE_2B_SERVICENOW_CONNECTOR)
 #   - Phase 3 : Departmental Gemini Enterprise Apps — Dev, Service Desk, Finance, HR (ENABLE_PHASE_3_GE_APPS)
 #   - Phase 4 : Universal ADK Skill Orchestrator Deploy & Pin (ENABLE_PHASE_4_UNIVERSAL_AGENT)
 #   - Phase 5 : 6-Rubric Benchmark Gate, GCS Upload & Multi-App Skill Sharing (ENABLE_PHASE_5_SKILL_SHARING)
@@ -45,16 +47,21 @@ DNS_PROJECT_ID=""
 DNS_ZONE_NAME=""
 MEMBERS_CSV=""
 ENTRA_MODE="terraform"
+SERVICENOW_INSTANCE_URI=""
+SERVICENOW_ADMIN_USER="admin"
+SERVICENOW_ADMIN_PASSWORD="${SN_ADMIN_PASSWORD:-}"
 DRY_RUN="false"
 
 # Default Phase Enablement Toggles
 ENABLE_PHASE_0C_GCP_FOUNDATION="true"
 ENABLE_PHASE_0B_GOOGLE_ADMIN="true"
 ENABLE_PHASE_0A_ENTRA_BOOTSTRAP="true"
+ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP="false"
 ENABLE_PHASE_1A_DIRECTORY_SYNC="true"
 ENABLE_PHASE_1B_IDENTITY_TERRAFORM="true"
 ENABLE_PHASE_1C_DEMO_CSV_SEED="false"
 ENABLE_PHASE_2_M365_CONNECTORS="true"
+ENABLE_PHASE_2B_SERVICENOW_CONNECTOR="false"
 ENABLE_PHASE_3_GE_APPS="true"
 PHASE_3_TARGET_APPS=""
 ENABLE_PHASE_4_UNIVERSAL_AGENT="true"
@@ -72,6 +79,9 @@ CLI_DNS_ZONE_NAME=""
 CLI_MEMBERS_CSV=""
 CLI_SEED_DEMO_CSV=""
 CLI_ENTRA_MODE=""
+CLI_SN_INSTANCE_URI=""
+CLI_SN_ADMIN_USER=""
+CLI_SN_ADMIN_PASSWORD=""
 CLI_ONLY_PHASES=""
 CLI_SKIP_PHASES=""
 
@@ -93,6 +103,9 @@ Options:
   --dns-project-id <id>      Cloud DNS Project ID (defaults to --gcp-project-id)
   --dns-zone-name <zone>     Cloud DNS Managed Zone name
   --entra-mode <mode>        Entra bootstrap mode: terraform (default) or az-graph
+  --servicenow-instance-uri  ServiceNow Instance URL for Phase 0D/2B (e.g. https://dev123456.service-now.com)
+  --servicenow-admin-user    ServiceNow admin username for Phase 0D (default: admin)
+  --servicenow-admin-password ServiceNow admin password for Phase 0D (or export SN_ADMIN_PASSWORD)
   --seed-demo-csv            Enable Phase 1C sandbox CSV group membership seeding
   --members-csv <path>       Custom CSV path for Phase 1C sandbox seeding
   --dry-run                  Preview all enabled phases without mutating remote state
@@ -156,6 +169,18 @@ while [[ $# -gt 0 ]]; do
       CLI_ENTRA_MODE="$2"
       shift 2
       ;;
+    --servicenow-instance-uri)
+      CLI_SN_INSTANCE_URI="$2"
+      shift 2
+      ;;
+    --servicenow-admin-user)
+      CLI_SN_ADMIN_USER="$2"
+      shift 2
+      ;;
+    --servicenow-admin-password)
+      CLI_SN_ADMIN_PASSWORD="$2"
+      shift 2
+      ;;
     --dry-run)
       DRY_RUN="true"
       shift 1
@@ -199,6 +224,9 @@ fi
 [[ -n "${CLI_MEMBERS_CSV}" ]] && MEMBERS_CSV="${CLI_MEMBERS_CSV}"
 [[ -n "${CLI_SEED_DEMO_CSV}" ]] && ENABLE_PHASE_1C_DEMO_CSV_SEED="${CLI_SEED_DEMO_CSV}"
 [[ -n "${CLI_ENTRA_MODE}" ]] && ENTRA_MODE="${CLI_ENTRA_MODE}"
+[[ -n "${CLI_SN_INSTANCE_URI}" ]] && SERVICENOW_INSTANCE_URI="${CLI_SN_INSTANCE_URI}"
+[[ -n "${CLI_SN_ADMIN_USER}" ]] && SERVICENOW_ADMIN_USER="${CLI_SN_ADMIN_USER}"
+[[ -n "${CLI_SN_ADMIN_PASSWORD}" ]] && SERVICENOW_ADMIN_PASSWORD="${CLI_SN_ADMIN_PASSWORD}"
 
 _set_phase_toggle() {
   local phase_code
@@ -208,6 +236,7 @@ _set_phase_toggle() {
     0C) ENABLE_PHASE_0C_GCP_FOUNDATION="${val}" ;;
     0B) ENABLE_PHASE_0B_GOOGLE_ADMIN="${val}" ;;
     0A) ENABLE_PHASE_0A_ENTRA_BOOTSTRAP="${val}" ;;
+    0D) ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP="${val}" ;;
     1A) ENABLE_PHASE_1A_DIRECTORY_SYNC="${val}" ;;
     1B) ENABLE_PHASE_1B_IDENTITY_TERRAFORM="${val}" ;;
     1C) ENABLE_PHASE_1C_DEMO_CSV_SEED="${val}" ;;
@@ -216,11 +245,12 @@ _set_phase_toggle() {
       ENABLE_PHASE_1B_IDENTITY_TERRAFORM="${val}"
       ;;
     2)  ENABLE_PHASE_2_M365_CONNECTORS="${val}" ;;
+    2B) ENABLE_PHASE_2B_SERVICENOW_CONNECTOR="${val}" ;;
     3)  ENABLE_PHASE_3_GE_APPS="${val}" ;;
     4)  ENABLE_PHASE_4_UNIVERSAL_AGENT="${val}" ;;
     5)  ENABLE_PHASE_5_SKILL_SHARING="${val}" ;;
     *)
-      echo "ERROR: Unknown phase code '${phase_code}' (valid: 0C, 0B, 0A, 1A, 1B, 1C, 2, 3, 4, 5)"
+      echo "ERROR: Unknown phase code '${phase_code}' (valid: 0C, 0B, 0A, 0D, 1A, 1B, 1C, 2, 2B, 3, 4, 5)"
       exit 1
       ;;
   esac
@@ -230,10 +260,12 @@ if [[ -n "${CLI_ONLY_PHASES}" ]]; then
   ENABLE_PHASE_0C_GCP_FOUNDATION="false"
   ENABLE_PHASE_0B_GOOGLE_ADMIN="false"
   ENABLE_PHASE_0A_ENTRA_BOOTSTRAP="false"
+  ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP="false"
   ENABLE_PHASE_1A_DIRECTORY_SYNC="false"
   ENABLE_PHASE_1B_IDENTITY_TERRAFORM="false"
   ENABLE_PHASE_1C_DEMO_CSV_SEED="false"
   ENABLE_PHASE_2_M365_CONNECTORS="false"
+  ENABLE_PHASE_2B_SERVICENOW_CONNECTOR="false"
   ENABLE_PHASE_3_GE_APPS="false"
   ENABLE_PHASE_4_UNIVERSAL_AGENT="false"
   ENABLE_PHASE_5_SKILL_SHARING="false"
@@ -286,10 +318,12 @@ echo " Phase Execution Matrix:"
 echo "   [$(_phase_badge "${ENABLE_PHASE_0C_GCP_FOUNDATION}")] Phase 0C : GCP APIs & Terraform State Bucket (gs://${TF_STATE_BUCKET})"
 echo "   [$(_phase_badge "${ENABLE_PHASE_0B_GOOGLE_ADMIN}")] Phase 0B : Google Admin Console & Domain DNS Verification"
 echo "   [$(_phase_badge "${ENABLE_PHASE_0A_ENTRA_BOOTSTRAP}")] Phase 0A : Microsoft Entra ID OAuth + 49 Scopes + SAML App"
+echo "   [$(_phase_badge "${ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP}")] Phase 0D : ServiceNow Instance Bootstrap (User, Roles, OAuth 2.0 & Secret Sync)"
 echo "   [$(_phase_badge "${ENABLE_PHASE_1A_DIRECTORY_SYNC}")] Phase 1A : GCP Directory Sync & GE UserStore License Sync"
 echo "   [$(_phase_badge "${ENABLE_PHASE_1B_IDENTITY_TERRAFORM}")] Phase 1B : Cloud Identity Per-App Group Nesting & SAML SSO"
 echo "   [$(_phase_badge "${ENABLE_PHASE_1C_DEMO_CSV_SEED}")] Phase 1C : Optional Sandbox CSV Group Membership Seeding"
 echo "   [$(_phase_badge "${ENABLE_PHASE_2_M365_CONNECTORS}")] Phase 2  : Shared M365 Connectors (SharePoint, OneDrive, Outlook, Teams)"
+echo "   [$(_phase_badge "${ENABLE_PHASE_2B_SERVICENOW_CONNECTOR}")] Phase 2B : Shared ServiceNow Connector (KB, Incidents, Catalog Items & Actions)"
 echo "   [$(_phase_badge "${ENABLE_PHASE_3_GE_APPS}")] Phase 3  : Departmental Gemini Enterprise Apps (${PHASE_3_TARGET_APPS:-all 4 apps})"
 echo "   [$(_phase_badge "${ENABLE_PHASE_4_UNIVERSAL_AGENT}")] Phase 4  : Universal ADK Skill Orchestrator Deploy & Pin (DeployEngine=${PHASE_4_DEPLOY_REASONING_ENGINE})"
 echo "   [$(_phase_badge "${ENABLE_PHASE_5_SKILL_SHARING}")] Phase 5  : 6-Rubric Skill Benchmark, GCS Upload & Multi-App Sharing"
@@ -373,6 +407,29 @@ if [[ "${ENABLE_PHASE_0A_ENTRA_BOOTSTRAP}" == "true" ]]; then
     --gcp-project-id "${GCP_PROJECT_ID}" \
     --secret-id "${M365_SECRET_ID}" \
     --mode "${ENTRA_MODE}" \
+    ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
+fi
+
+# ------------------------------------------------------------------------------
+# Phase 0D: ServiceNow Instance Bootstrap (Integration User, Roles, OAuth 2.0, Secret Manager)
+# ------------------------------------------------------------------------------
+if [[ "${ENABLE_PHASE_0D_SERVICENOW_BOOTSTRAP}" == "true" ]]; then
+  echo ""
+  echo ">>> [Phase 0D] Running ServiceNow Instance Bootstrap (deploy_servicenow_bootstrap.sh)..."
+  SN_BOOTSTRAP_ARGS=(
+    --instance-uri "${SERVICENOW_INSTANCE_URI:-https://dev123456.service-now.com}"
+    --admin-user "${SERVICENOW_ADMIN_USER:-admin}"
+    --customer-name "${CUSTOMER_NAME}"
+    --customer-domain "${CUSTOMER_DOMAIN}"
+    --gcp-project-id "${GCP_PROJECT_ID}"
+    --gcp-region "${GCP_REGION}"
+    --tf-state-bucket "${TF_STATE_BUCKET}"
+  )
+  if [[ -n "${SERVICENOW_ADMIN_PASSWORD:-}" ]]; then
+    SN_BOOTSTRAP_ARGS+=(--admin-password "${SERVICENOW_ADMIN_PASSWORD}")
+  fi
+  "${SCRIPT_DIR}/deploy_servicenow_bootstrap.sh" \
+    "${SN_BOOTSTRAP_ARGS[@]}" \
     ${DRY_RUN_FLAG[@]+"${DRY_RUN_FLAG[@]}"}
 fi
 
@@ -465,6 +522,20 @@ M365_TEAMS_ENTITIES="channel-message,chat-message"
 EOF
     TF_WORKSPACE_OVERRIDE="m365-global-${CUSTOMER_NAME}-m365" "${SCRIPT_DIR}/deploy_m365.sh" \
       --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-m365.env"
+  fi
+fi
+
+# ------------------------------------------------------------------------------
+# Phase 2B: Shared ServiceNow Connector (Knowledge Base, Incidents, Catalog Items & Actions)
+# ------------------------------------------------------------------------------
+if [[ "${ENABLE_PHASE_2B_SERVICENOW_CONNECTOR}" == "true" ]]; then
+  echo ""
+  echo ">>> [Phase 2B] Running Stack 03B: Shared ServiceNow Connector (${CUSTOMER_NAME}-servicenow)..."
+  if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "[DRY-RUN] Would run: TF_WORKSPACE_OVERRIDE=sn-global-${CUSTOMER_NAME}-servicenow ./deploy_servicenow.sh --config configs/${CUSTOMER_NAME}-servicenow.env --dry-run"
+  else
+    TF_WORKSPACE_OVERRIDE="sn-global-${CUSTOMER_NAME}-servicenow" "${SCRIPT_DIR}/deploy_servicenow.sh" \
+      --config "${CONFIGS_DIR}/${CUSTOMER_NAME}-servicenow.env"
   fi
 fi
 
