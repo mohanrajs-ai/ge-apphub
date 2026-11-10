@@ -26,13 +26,13 @@ variable "servicenow_secret_id" {
 variable "servicenow_collection_id" {
   description = "Discovery Engine Collection ID for the ServiceNow connector."
   type        = string
-  default     = "cymbal-sn"
+  default     = "cymbal-sn-fed"
 }
 
 variable "servicenow_collection_display_name" {
   description = "Display name for the ServiceNow connector collection."
   type        = string
-  default     = "ServiceNow ITSM and Knowledge"
+  default     = "ServiceNow Federated"
 }
 
 variable "servicenow_instance_uri" {
@@ -76,9 +76,9 @@ variable "servicenow_refresh_token" {
 }
 
 variable "servicenow_connector_mode" {
-  description = "Primary connector mode for ServiceNow (DATA_INGESTION or FEDERATED)."
+  description = "Primary connector mode for ServiceNow (FEDERATED or DATA_INGESTION)."
   type        = string
-  default     = "DATA_INGESTION"
+  default     = "FEDERATED"
 }
 
 variable "servicenow_refresh_interval" {

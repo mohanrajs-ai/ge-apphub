@@ -22,7 +22,7 @@ This composite parent skill orchestrates five atomic sub-skills across **Service
 
 ## Orchestration Workflow
 ### Step 0: ServiceNow Ticket & Known-Error KB Triage (`servicenow-itsm-ticket-triage`)
-- Search `@1p-skill-manta-data-connector-skill-type-servicenow` (`cymbal-servicenow_incident`, `cymbal-servicenow_knowledge_base`) for active incident records (`INC*`), affected Configuration Items, and known-error KB articles.
+- Search `@1p-skill-manta-data-connector-skill-type-servicenow` (`cymbal-sn-fed_incident`, `cymbal-sn-fed_catalog`) for active incident records (`INC*`, searching both `"P0"`, `"P1"`, and priority `"1 - Critical"`), affected Configuration Items, and known-error KB articles.
 
 ### Step 1: War-Room Telemetry (`m365-teams-incident-swarm`)
 - Search `@1p-skill-manta-data-connector-skill-type-teams` for the active incident ID or service name to construct a chronological timeline and identify mitigation owners.

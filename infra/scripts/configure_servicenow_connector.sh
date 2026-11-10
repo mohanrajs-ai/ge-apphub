@@ -36,8 +36,8 @@ load_servicenow_config() {
   export GCP_REGION="${GCP_REGION:-us-central1}"
   export GE_LOCATION="${GE_LOCATION:-global}"
   export SERVICENOW_SECRET_ID="${env_sn_sec_id:-${SERVICENOW_SECRET_ID:-cymbal-servicenow-connector-credentials}}"
-  export SERVICENOW_COLLECTION_ID="${SERVICENOW_COLLECTION_ID:-cymbal-sn}"
-  export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME:-ServiceNow ITSM and Knowledge}"
+  export SERVICENOW_COLLECTION_ID="${SERVICENOW_COLLECTION_ID:-cymbal-sn-fed}"
+  export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME:-ServiceNow Federated}"
   export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME//&/and}"
   export SERVICENOW_INSTANCE_URI="${env_sn_uri:-${SERVICENOW_INSTANCE_URI:-}}"
   export SERVICENOW_CLIENT_ID="${env_sn_cid:-${SERVICENOW_CLIENT_ID:-}}"
@@ -45,7 +45,7 @@ load_servicenow_config() {
   export SERVICENOW_REFRESH_TOKEN="${env_sn_rtok:-${SERVICENOW_REFRESH_TOKEN:-}}"
   export SERVICENOW_USERNAME="${env_sn_user:-${SERVICENOW_USERNAME:-}}"
   export SERVICENOW_PASSWORD="${env_sn_pass:-${SERVICENOW_PASSWORD:-}}"
-  export SERVICENOW_CONNECTOR_MODE="${SERVICENOW_CONNECTOR_MODE:-DATA_INGESTION}"
+  export SERVICENOW_CONNECTOR_MODE="${SERVICENOW_CONNECTOR_MODE:-FEDERATED}"
   export SERVICENOW_REFRESH_INTERVAL="${SERVICENOW_REFRESH_INTERVAL:-86400s}"
   export SERVICENOW_ENTITIES="${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog}"
   export ENABLE_SERVICENOW_ACTIONS="${ENABLE_SERVICENOW_ACTIONS:-true}"
@@ -205,9 +205,9 @@ render_servicenow_connector_payload() {
 
   local modes_json
   if [[ "${ENABLE_SERVICENOW_ACTIONS:-true}" == "true" ]]; then
-    modes_json="$(jq -c -n --arg m "${SERVICENOW_CONNECTOR_MODE:-DATA_INGESTION}" '[$m, "ACTIONS"] | unique')"
+    modes_json="$(jq -c -n --arg m "${SERVICENOW_CONNECTOR_MODE:-FEDERATED}" '[$m, "ACTIONS"] | unique')"
   else
-    modes_json="$(jq -c -n --arg m "${SERVICENOW_CONNECTOR_MODE:-DATA_INGESTION}" '[$m]')"
+    modes_json="$(jq -c -n --arg m "${SERVICENOW_CONNECTOR_MODE:-FEDERATED}" '[$m]')"
   fi
 
   jq -n \
@@ -218,14 +218,17 @@ render_servicenow_connector_payload() {
     --arg usr "${SERVICENOW_USERNAME}" \
     --arg pwd "${SERVICENOW_PASSWORD}" \
     --arg refresh "${SERVICENOW_REFRESH_INTERVAL:-86400s}" \
+    --arg mode "${SERVICENOW_CONNECTOR_MODE:-FEDERATED}" \
     --arg enable_act "${ENABLE_SERVICENOW_ACTIONS:-true}" \
-    --arg actions_csv "${SERVICENOW_ENABLED_ACTIONS:-create_incident,update_incident,get_incident,add_comment_to_incident}" \
+    --arg actions_csv "${SERVICENOW_ENABLED_ACTIONS:-create_incident}" \
     --argjson modes "${modes_json}" \
     --argjson entities "${entities_json}" \
     '{
       dataSource: "servicenow",
       connectorModes: $modes,
       refreshInterval: $refresh,
+      autoRunDisabled: ($mode == "FEDERATED"),
+      incrementalSyncDisabled: ($mode == "FEDERATED"),
       params: {
         instance_uri: $uri,
         client_id: $cid,

@@ -297,7 +297,7 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
             "Orchestrates 5 Sub-Skills (`servicenow-itsm-ticket-triage`, `m365-teams-incident-swarm`, `sharepoint-policy-lookup`, `m365-onedrive-artifact-finder`, `m365-outlook-triage`).\n\n"
             f"## Required Tools\n- `{t_sn}`\n- `{t_teams}`\n- `{t_sp}`\n- `{t_od}`\n- `{t_mail}`\n\n"
             "## Step-by-Step Workflow\n"
-            f"1. **Sub-Skill 1 (`servicenow-itsm-ticket-triage`)**: Query `{t_sn}` for active ServiceNow incidents (`INC*`), known-error KB articles, and Service Catalog items.\n"
+            f"1. **Sub-Skill 1 (`servicenow-itsm-ticket-triage`)**: Query `{t_sn}` for active ServiceNow incidents (`INC*`, searching for `P0`, `P1`, and priority `1 - Critical`), known-error KB articles, and Service Catalog items.\n"
             f"2. **Sub-Skill 2 (`m365-teams-incident-swarm`)**: Query `{t_teams}` for war-room timeline and owners.\n"
             f"3. **Sub-Skill 3 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for major incident runbooks.\n"
             f"4. **Sub-Skill 4 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for RCA drafts and telemetry sheets.\n"
@@ -351,7 +351,7 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
         "servicenow-itsm-ticket-triage": (
             "# ServiceNow ITSM Ticket & Knowledge Triage (Atomic Sub-Skill)\n\n"
             f"## Required Tools\n- `{t_sn}`\n\n"
-            f"1. Search `{t_sn}` (`knowledge_base`, `incident`, `catalog_item`) for active incidents, KB articles, and catalog items.\n2. Execute governed ServiceNow BAP actions (`create_incident`, `update_incident`, `get_incident`, `add_comment_to_incident`) when requested."
+            f"1. Search `{t_sn}` (`incident`, `catalog`, `knowledge_base`) for active incidents (searching both `P0`, `P1`, and priority `1 - Critical` / `2 - High`), KB articles, and catalog items.\n2. Execute governed ServiceNow BAP actions (`create_incident`) when requested."
         ),
     }
     return templates[skill_id]

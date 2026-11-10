@@ -130,7 +130,7 @@ resource "google_discovery_engine_data_connector" "servicenow" {
   }
 
   lifecycle {
-    ignore_changes = [tag, static_ip_enabled, entities, json_params, action_config, destination_configs, auto_run_disabled, incremental_sync_disabled]
+    ignore_changes = [collection_display_name, connector_modes, refresh_interval, bap_config, tag, static_ip_enabled, entities, json_params, action_config, destination_configs, auto_run_disabled, incremental_sync_disabled]
   }
 
   depends_on = [
