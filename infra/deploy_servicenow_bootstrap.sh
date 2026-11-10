@@ -66,6 +66,7 @@ SN_CONNECTOR_USERNAME=""
 SN_CONNECTOR_PASSWORD="${SERVICENOW_PASSWORD:-}"
 SN_OAUTH_CLIENT_ID="${SERVICENOW_CLIENT_ID:-}"
 SN_OAUTH_CLIENT_SECRET="${SERVICENOW_CLIENT_SECRET:-}"
+SN_OAUTH_REFRESH_TOKEN="${SERVICENOW_REFRESH_TOKEN:-}"
 ALIGN_USER_EMAILS="false"
 TF_STATE_BUCKET=""
 DRY_RUN="false"
@@ -399,7 +400,7 @@ deploy_servicenow_bootstrap_main() {
     fi
     log_ok "ServiceNow OAuth 2.0 Client ready (client_id=${SN_OAUTH_CLIENT_ID})."
 
-    # Verify OAuth 2.0 password grant handshake against /oauth_token.do
+    # Verify OAuth 2.0 password grant handshake against /oauth_token.do and capture refresh_token
     log_info "Verifying OAuth 2.0 token handshake at ${SN_INSTANCE_URI}/oauth_token.do..."
     local token_resp_file token_http_code
     token_resp_file="$(mktemp)"
@@ -412,12 +413,13 @@ deploy_servicenow_bootstrap_main() {
       --data-urlencode "client_secret=${SN_OAUTH_CLIENT_SECRET}" \
       --data-urlencode "username=${SN_CONNECTOR_USERNAME}" \
       --data-urlencode "password=${SN_CONNECTOR_PASSWORD}" || echo "000")"
-    rm -f "${token_resp_file}"
     if [[ "${token_http_code}" == "200" ]]; then
-      log_ok "ServiceNow OAuth 2.0 token exchange (/oauth_token.do) succeeded (HTTP 200)."
+      SN_OAUTH_REFRESH_TOKEN="$(jq -r '.refresh_token // empty' "${token_resp_file}" 2>/dev/null || true)"
+      log_ok "ServiceNow OAuth 2.0 token exchange (/oauth_token.do) succeeded (HTTP 200, refresh_token captured)."
     else
       log_warn "ServiceNow /oauth_token.do returned HTTP ${token_http_code}. Ensure 'com.snc.platform.security.oauth.is.active' system property is true."
     fi
+    rm -f "${token_resp_file}"
   fi
 
   # Optional: Align ServiceNow sys_user emails to @<customer_domain>
@@ -459,12 +461,14 @@ deploy_servicenow_bootstrap_main() {
       --arg uri "${SN_INSTANCE_URI}" \
       --arg cid "${SN_OAUTH_CLIENT_ID}" \
       --arg csec "${SN_OAUTH_CLIENT_SECRET}" \
+      --arg rtok "${SN_OAUTH_REFRESH_TOKEN}" \
       --arg usr "${SN_CONNECTOR_USERNAME}" \
       --arg pwd "${SN_CONNECTOR_PASSWORD}" \
       '{
         instance_uri: $uri,
         client_id: $cid,
         client_secret: $csec,
+        refresh_token: $rtok,
         username: $usr,
         password: $pwd
       }' | gcloud secrets versions add "${SN_SECRET_ID}" \
@@ -481,14 +485,14 @@ TF_STATE_BUCKET="${TF_STATE_BUCKET}"
 TF_STATE_PREFIX="ge-apphub/03b-servicenow-connector/sn-global-${CUSTOMER_NAME}-servicenow"
 
 SERVICENOW_SECRET_ID="${SN_SECRET_ID}"
-SERVICENOW_COLLECTION_ID="${CUSTOMER_NAME}-servicenow"
-SERVICENOW_COLLECTION_DISPLAY_NAME="ServiceNow ITSM & Knowledge (${CUSTOMER_NAME})"
+SERVICENOW_COLLECTION_ID="${CUSTOMER_NAME}-sn"
+SERVICENOW_COLLECTION_DISPLAY_NAME="ServiceNow ITSM and Knowledge (${CUSTOMER_NAME})"
 SERVICENOW_INSTANCE_URI="${SN_INSTANCE_URI}"
 SERVICENOW_CONNECTOR_MODE="DATA_INGESTION"
 SERVICENOW_REFRESH_INTERVAL="86400s"
-SERVICENOW_ENTITIES="knowledge_base,incident,catalog_item"
+SERVICENOW_ENTITIES="knowledge_base,incident,catalog"
 ENABLE_SERVICENOW_ACTIONS="true"
-SERVICENOW_ENABLED_ACTIONS="create_incident,update_incident,get_incident,add_comment_to_incident"
+SERVICENOW_ENABLED_ACTIONS="create_incident"
 SERVICENOW_TARGET_APPS="${CUSTOMER_NAME}-service-desk-app,${CUSTOMER_NAME}-dev-sandbox-app"
 EOF
 

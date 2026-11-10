@@ -324,11 +324,11 @@ content = content.replace('GE_ENABLE_PROJECTS="true"', f'GE_ENABLE_PROJECTS="{en
 if include_servicenow.lower() == "true":
     content = content.replace(
         f'GE_COMMON_CONNECTOR_COLLECTIONS="{customer_name}-m365-sp,{customer_name}-m365-od,{customer_name}-m365-ol,{customer_name}-m365-teams"',
-        f'GE_COMMON_CONNECTOR_COLLECTIONS="{customer_name}-m365-sp,{customer_name}-m365-od,{customer_name}-m365-ol,{customer_name}-m365-teams,{customer_name}-servicenow"',
+        f'GE_COMMON_CONNECTOR_COLLECTIONS="{customer_name}-m365-sp,{customer_name}-m365-od,{customer_name}-m365-ol,{customer_name}-m365-teams,{customer_name}-sn"',
     )
     content = content.replace(
         f'GE_COMMON_CONNECTOR_DATA_STORE_IDS="{customer_name}-m365-sp_file,{customer_name}-m365-sp_page,{customer_name}-m365-od_file,{customer_name}-m365-ol_mail,{customer_name}-m365-ol_mail-attachment,{customer_name}-m365-ol_calendar,{customer_name}-m365-ol_contact,{customer_name}-m365-teams_channel-message,{customer_name}-m365-teams_chat-message"',
-        f'GE_COMMON_CONNECTOR_DATA_STORE_IDS="{customer_name}-m365-sp_file,{customer_name}-m365-sp_page,{customer_name}-m365-od_file,{customer_name}-m365-ol_mail,{customer_name}-m365-ol_mail-attachment,{customer_name}-m365-ol_calendar,{customer_name}-m365-ol_contact,{customer_name}-m365-teams_channel-message,{customer_name}-m365-teams_chat-message,{customer_name}-servicenow_knowledge_base,{customer_name}-servicenow_incident,{customer_name}-servicenow_catalog_item"',
+        f'GE_COMMON_CONNECTOR_DATA_STORE_IDS="{customer_name}-m365-sp_file,{customer_name}-m365-sp_page,{customer_name}-m365-od_file,{customer_name}-m365-ol_mail,{customer_name}-m365-ol_mail-attachment,{customer_name}-m365-ol_calendar,{customer_name}-m365-ol_contact,{customer_name}-m365-teams_channel-message,{customer_name}-m365-teams_chat-message,{customer_name}-sn_knowledge_base,{customer_name}-sn_incident,{customer_name}-sn_catalog"',
     )
 
 with open(out_path, "w", encoding="utf-8") as f:

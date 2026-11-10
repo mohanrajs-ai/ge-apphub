@@ -45,7 +45,7 @@ test_servicenow_scripts_and_cli_modes() {
   unset SERVICENOW_CLIENT_ID SERVICENOW_CLIENT_SECRET SERVICENOW_USERNAME SERVICENOW_PASSWORD
   load_servicenow_config "${cfg}" >/dev/null
   assert_eq "cymbal-servicenow-connector-credentials" "${SERVICENOW_SECRET_ID}" "Default SERVICENOW_SECRET_ID loaded"
-  assert_eq "cymbal-servicenow" "${SERVICENOW_COLLECTION_ID}" "Default SERVICENOW_COLLECTION_ID loaded"
+  assert_eq "cymbal-sn" "${SERVICENOW_COLLECTION_ID}" "Default SERVICENOW_COLLECTION_ID loaded"
 
   # Validation fails when credentials are missing and Secret Manager returns empty
   export MOCK_CURL_GET_STATUS="404"
@@ -87,7 +87,7 @@ test_servicenow_scripts_and_cli_modes() {
   assert_contains "${sn_payload}" "\"dataSource\": \"servicenow\"" "Rendered payload sets dataSource=servicenow"
   assert_contains "${sn_payload}" "\"entityName\": \"knowledge_base\"" "Rendered payload includes knowledge_base entity"
   assert_contains "${sn_payload}" "\"entityName\": \"incident\"" "Rendered payload includes incident entity"
-  assert_contains "${sn_payload}" "\"entityName\": \"catalog_item\"" "Rendered payload includes catalog_item entity"
+  assert_contains "${sn_payload}" "\"entityName\": \"catalog\"" "Rendered payload includes catalog entity"
   assert_contains "${sn_payload}" "\"createBapConnection\": true" "Rendered payload includes createBapConnection"
   assert_contains "${sn_payload}" "\"create_incident\"" "Rendered payload includes bapConfig.enabledActions"
 
@@ -105,7 +105,7 @@ test_servicenow_scripts_and_cli_modes() {
   configure_servicenow_connector "true" >/dev/null
   local create_calls
   create_calls="$(cat "${MOCK_CALL_LOG}")"
-  assert_contains "${create_calls}" "setUpDataConnectorV2?collectionId=cymbal-servicenow" "Provisions ServiceNow connector via setUpDataConnectorV2 when 404"
+  assert_contains "${create_calls}" "setUpDataConnectorV2?collectionId=cymbal-sn" "Provisions ServiceNow connector via setUpDataConnectorV2 when 404"
 
   # Test configure_servicenow_connector (200 -> PATCH + engine & widget attachment)
   export MOCK_CURL_GET_STATUS="200"
@@ -117,9 +117,8 @@ test_servicenow_scripts_and_cli_modes() {
   unset MOCK_CURL_BODY
   local sn_calls
   sn_calls="$(cat "${MOCK_CALL_LOG}")"
-  assert_contains "${sn_calls}" "collections/cymbal-servicenow/dataConnector?updateMask=actionConfig,bapConfig" "Patches ServiceNow BAP actions"
+  assert_contains "${sn_calls}" "collections/cymbal-sn/dataConnector?updateMask=actionConfig,bapConfig" "Patches ServiceNow BAP actions"
   assert_contains "${sn_calls}" "engines/cymbal-service-desk-app?updateMask=dataStoreIds" "Attaches ServiceNow datastores to target GE engines"
-  assert_contains "${sn_calls}" "widgetConfigs/default_search_widget_config?updateMask=collectionComponents" "Registers ServiceNow display names on Web Widget"
 
   # Test deploy_servicenow_main CLI modes (both live mock and dry-run)
   export MOCK_CURL_BODY="{\"name\":\"projects/cymbal-app-514110/secrets/cymbal-servicenow-connector-credentials\",\"payload\":{\"data\":\"${b64_json}\"}}"

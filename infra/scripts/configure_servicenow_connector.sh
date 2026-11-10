@@ -22,6 +22,7 @@ load_servicenow_config() {
   local env_sn_uri="${SERVICENOW_INSTANCE_URI:-}"
   local env_sn_cid="${SERVICENOW_CLIENT_ID:-}"
   local env_sn_csec="${SERVICENOW_CLIENT_SECRET:-}"
+  local env_sn_rtok="${SERVICENOW_REFRESH_TOKEN:-}"
   local env_sn_user="${SERVICENOW_USERNAME:-}"
   local env_sn_pass="${SERVICENOW_PASSWORD:-}"
   local env_sn_sec_id="${SERVICENOW_SECRET_ID:-}"
@@ -35,18 +36,20 @@ load_servicenow_config() {
   export GCP_REGION="${GCP_REGION:-us-central1}"
   export GE_LOCATION="${GE_LOCATION:-global}"
   export SERVICENOW_SECRET_ID="${env_sn_sec_id:-${SERVICENOW_SECRET_ID:-cymbal-servicenow-connector-credentials}}"
-  export SERVICENOW_COLLECTION_ID="${SERVICENOW_COLLECTION_ID:-cymbal-servicenow}"
-  export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME:-ServiceNow ITSM & Knowledge}"
+  export SERVICENOW_COLLECTION_ID="${SERVICENOW_COLLECTION_ID:-cymbal-sn}"
+  export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME:-ServiceNow ITSM and Knowledge}"
+  export SERVICENOW_COLLECTION_DISPLAY_NAME="${SERVICENOW_COLLECTION_DISPLAY_NAME//&/and}"
   export SERVICENOW_INSTANCE_URI="${env_sn_uri:-${SERVICENOW_INSTANCE_URI:-}}"
   export SERVICENOW_CLIENT_ID="${env_sn_cid:-${SERVICENOW_CLIENT_ID:-}}"
   export SERVICENOW_CLIENT_SECRET="${env_sn_csec:-${SERVICENOW_CLIENT_SECRET:-}}"
+  export SERVICENOW_REFRESH_TOKEN="${env_sn_rtok:-${SERVICENOW_REFRESH_TOKEN:-}}"
   export SERVICENOW_USERNAME="${env_sn_user:-${SERVICENOW_USERNAME:-}}"
   export SERVICENOW_PASSWORD="${env_sn_pass:-${SERVICENOW_PASSWORD:-}}"
   export SERVICENOW_CONNECTOR_MODE="${SERVICENOW_CONNECTOR_MODE:-DATA_INGESTION}"
   export SERVICENOW_REFRESH_INTERVAL="${SERVICENOW_REFRESH_INTERVAL:-86400s}"
-  export SERVICENOW_ENTITIES="${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog_item}"
+  export SERVICENOW_ENTITIES="${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog}"
   export ENABLE_SERVICENOW_ACTIONS="${ENABLE_SERVICENOW_ACTIONS:-true}"
-  export SERVICENOW_ENABLED_ACTIONS="${SERVICENOW_ENABLED_ACTIONS:-create_incident,update_incident,get_incident,add_comment_to_incident}"
+  export SERVICENOW_ENABLED_ACTIONS="${SERVICENOW_ENABLED_ACTIONS:-create_incident}"
   export SERVICENOW_TARGET_APPS="${SERVICENOW_TARGET_APPS:-}"
   export SERVICENOW_CONFIGURE_ACL="${SERVICENOW_CONFIGURE_ACL:-true}"
 
@@ -59,6 +62,7 @@ load_servicenow_config() {
   export TF_VAR_servicenow_instance_uri="${SERVICENOW_INSTANCE_URI}"
   export TF_VAR_servicenow_client_id="${SERVICENOW_CLIENT_ID}"
   export TF_VAR_servicenow_client_secret="${SERVICENOW_CLIENT_SECRET}"
+  export TF_VAR_servicenow_refresh_token="${SERVICENOW_REFRESH_TOKEN}"
   export TF_VAR_servicenow_username="${SERVICENOW_USERNAME}"
   export TF_VAR_servicenow_password="${SERVICENOW_PASSWORD}"
   export TF_VAR_servicenow_connector_mode="${SERVICENOW_CONNECTOR_MODE}"
@@ -120,13 +124,43 @@ ensure_and_load_servicenow_secret_credentials() {
     export SERVICENOW_INSTANCE_URI="${env_uri:-$(jq -r '.instance_uri // empty' <<<"${decoded_json}")}"
     export SERVICENOW_CLIENT_ID="${env_cid:-$(jq -r '.client_id // empty' <<<"${decoded_json}")}"
     export SERVICENOW_CLIENT_SECRET="${env_csec:-$(jq -r '.client_secret // empty' <<<"${decoded_json}")}"
+    export SERVICENOW_REFRESH_TOKEN="${SERVICENOW_REFRESH_TOKEN:-$(jq -r '.refresh_token // empty' <<<"${decoded_json}")}"
     export SERVICENOW_USERNAME="${env_usr:-$(jq -r '.username // empty' <<<"${decoded_json}")}"
     export SERVICENOW_PASSWORD="${env_pwd:-$(jq -r '.password // empty' <<<"${decoded_json}")}"
+  fi
+
+  # Auto-mint refresh_token from /oauth_token.do if missing and update Secret Manager
+  if [[ -z "${SERVICENOW_REFRESH_TOKEN:-}" && -n "${SERVICENOW_INSTANCE_URI:-}" && -n "${SERVICENOW_CLIENT_ID:-}" && -n "${SERVICENOW_CLIENT_SECRET:-}" && -n "${SERVICENOW_USERNAME:-}" && -n "${SERVICENOW_PASSWORD:-}" && -z "${MOCK_CURL_GET_STATUS:-}" ]]; then
+    log_info "Exchanging ServiceNow credentials at ${SERVICENOW_INSTANCE_URI}/oauth_token.do for OAuth 2.0 refresh_token..."
+    local tok_resp
+    tok_resp="$(curl -sS -X POST "${SERVICENOW_INSTANCE_URI%/}/oauth_token.do" \
+      -H "Content-Type: application/x-www-form-urlencoded" \
+      --data-urlencode "grant_type=password" \
+      --data-urlencode "client_id=${SERVICENOW_CLIENT_ID}" \
+      --data-urlencode "client_secret=${SERVICENOW_CLIENT_SECRET}" \
+      --data-urlencode "username=${SERVICENOW_USERNAME}" \
+      --data-urlencode "password=${SERVICENOW_PASSWORD}" 2>/dev/null || echo '{}')"
+    export SERVICENOW_REFRESH_TOKEN="$(jq -r '.refresh_token // empty' <<<"${tok_resp}" 2>/dev/null || true)"
+    if [[ -n "${SERVICENOW_REFRESH_TOKEN}" ]]; then
+      local updated_json updated_b64
+      updated_json="$(jq -c -n \
+        --arg uri "${SERVICENOW_INSTANCE_URI}" \
+        --arg cid "${SERVICENOW_CLIENT_ID}" \
+        --arg csec "${SERVICENOW_CLIENT_SECRET}" \
+        --arg rtok "${SERVICENOW_REFRESH_TOKEN}" \
+        --arg usr "${SERVICENOW_USERNAME}" \
+        --arg pwd "${SERVICENOW_PASSWORD}" \
+        '{instance_uri: $uri, client_id: $cid, client_secret: $csec, refresh_token: $rtok, username: $usr, password: $pwd}')"
+      updated_b64="$(printf '%s' "${updated_json}" | base64 | tr -d '\n')"
+      ge_curl_request "POST" "${sm_base}/secrets/${secret_id}:addVersion" "$(jq -n --arg d "${updated_b64}" '{payload: {data: $d}}')" "true" >/dev/null || true
+      log_ok "Minted ServiceNow OAuth refresh_token and updated Secret Manager '${secret_id}'."
+    fi
   fi
 
   export TF_VAR_servicenow_instance_uri="${SERVICENOW_INSTANCE_URI:-}"
   export TF_VAR_servicenow_client_id="${SERVICENOW_CLIENT_ID:-}"
   export TF_VAR_servicenow_client_secret="${SERVICENOW_CLIENT_SECRET:-}"
+  export TF_VAR_servicenow_refresh_token="${SERVICENOW_REFRESH_TOKEN:-}"
   export TF_VAR_servicenow_username="${SERVICENOW_USERNAME:-}"
   export TF_VAR_servicenow_password="${SERVICENOW_PASSWORD:-}"
   return 0
@@ -162,7 +196,7 @@ validate_servicenow_config() {
 
 render_servicenow_connector_payload() {
   local entities_json="[]"
-  IFS=',' read -r -a ent_arr <<< "${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog_item}"
+  IFS=',' read -r -a ent_arr <<< "${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog}"
   for ent in "${ent_arr[@]}"; do
     ent="$(printf '%s' "${ent}" | xargs)"
     [[ -z "${ent}" ]] && continue
@@ -180,6 +214,7 @@ render_servicenow_connector_payload() {
     --arg uri "${SERVICENOW_INSTANCE_URI}" \
     --arg cid "${SERVICENOW_CLIENT_ID}" \
     --arg csec "${SERVICENOW_CLIENT_SECRET}" \
+    --arg rtok "${SERVICENOW_REFRESH_TOKEN:-}" \
     --arg usr "${SERVICENOW_USERNAME}" \
     --arg pwd "${SERVICENOW_PASSWORD}" \
     --arg refresh "${SERVICENOW_REFRESH_INTERVAL:-86400s}" \
@@ -195,24 +230,22 @@ render_servicenow_connector_payload() {
         instance_uri: $uri,
         client_id: $cid,
         client_secret: $csec,
-        username: $usr,
         user_account: $usr,
         password: $pwd
       },
       entities: $entities
     } + (if $enable_act == "true" then {
-      destinationConfigs: [{key: "url", destinations: [{host: $uri}]}],
+      destinationConfigs: [{key: "host_url", destinations: [{host: $uri}]}],
       actionConfig: {
         isActionConfigured: true,
         createBapConnection: true,
-        actionParams: {
-          auth_type: "OAUTH",
+        actionParams: ({
           instance_uri: $uri,
           client_id: $cid,
           client_secret: $csec,
-          username: $usr,
-          password: $pwd
-        }
+          auth_uri: ($uri + "/oauth_auth.do"),
+          token_uri: ($uri + "/oauth_token.do")
+        } + (if ($rtok | length) > 0 then {refresh_token: $rtok} else {} end))
       },
       bapConfig: {
         supportedConnectorModes: ["ACTIONS"],
@@ -238,7 +271,7 @@ _patch_servicenow_actions_when_ready() {
     return 0
   fi
 
-  local attempt=1 max_attempts=18 conn_json="" conn_state="" is_cfg=""
+  local attempt=1 max_attempts=3 conn_json="" conn_state="" is_cfg=""
   while [[ "${attempt}" -le "${max_attempts}" ]]; do
     conn_json="$(ge_curl_request "GET" "${get_url}" "" "true" || echo '{}')"
     conn_state="$(jq -r '.state // empty' <<<"${conn_json}" 2>/dev/null || true)"
@@ -250,6 +283,10 @@ _patch_servicenow_actions_when_ready() {
     fi
 
     if [[ "${conn_state}" == "INITIALIZING" || "${conn_state}" == "CREATING" ]]; then
+      if [[ "${attempt}" -eq "${max_attempts}" ]]; then
+        log_info "${display_label} connector ('${col_id}') is still ${conn_state} in the background; Terraform action_config and bap_config are already queued."
+        return 0
+      fi
       log_info "Waiting for ${display_label} connector ('${col_id}') to finish ${conn_state} before patching actions (attempt ${attempt}/${max_attempts})..."
       sleep 10
       attempt=$((attempt + 1))
@@ -326,7 +363,7 @@ attach_servicenow_datastores_to_engines() {
   loc_parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION:-global}"
 
   local sn_ds_ids_json="[]"
-  IFS=',' read -r -a ent_arr <<< "${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog_item}"
+  IFS=',' read -r -a ent_arr <<< "${SERVICENOW_ENTITIES:-knowledge_base,incident,catalog}"
   for ent in "${ent_arr[@]}"; do
     ent="$(printf '%s' "${ent}" | xargs)"
     [[ -z "${ent}" ]] && continue
@@ -334,32 +371,20 @@ attach_servicenow_datastores_to_engines() {
   done
 
   if [[ "${DRY_RUN:-false}" != "true" ]]; then
-    local conn_json
+    local conn_json live_ds_ids
     conn_json="$(ge_curl_request "GET" "${base_v1alpha}/${loc_parent}/collections/${SERVICENOW_COLLECTION_ID}/dataConnector" "" "true" || echo '{}')"
-    sn_ds_ids_json="$(jq -c -n --argjson fallback "${sn_ds_ids_json}" --argjson conn "${conn_json}" \
-      '(([($conn.entities // [])[] | .dataStore // empty | split("/") | last] | map(select(length > 0))) + $fallback) | unique')"
+    live_ds_ids="$(jq -c -n --argjson conn "${conn_json}" \
+      '([($conn.entities // [])[] | .dataStore // empty | split("/") | last] | map(select(length > 0))) | unique')"
+    if [[ "$(jq -r 'length' <<<"${live_ds_ids}")" -gt 0 ]]; then
+      sn_ds_ids_json="${live_ds_ids}"
+    fi
   fi
-
-  local sn_widget_component
-  sn_widget_component="$(jq -c -n \
-    --arg cid "${SERVICENOW_COLLECTION_ID}" \
-    --arg cdn "${SERVICENOW_COLLECTION_DISPLAY_NAME:-ServiceNow ITSM & Knowledge}" \
-    '{
-      name: $cid,
-      displayName: $cdn,
-      dataStoreComponents: [
-        {name: ($cid + "_knowledge_base"), displayName: "ServiceNow Knowledge Base"},
-        {name: ($cid + "_incident"), displayName: "ServiceNow IT Incidents"},
-        {name: ($cid + "_catalog_item"), displayName: "ServiceNow Service Catalog"}
-      ]
-    }')"
 
   IFS=',' read -r -a app_arr <<< "${SERVICENOW_TARGET_APPS}"
   for app_id in "${app_arr[@]}"; do
     app_id="$(printf '%s' "${app_id}" | xargs)"
     [[ -z "${app_id}" ]] && continue
     local engine_url="${base_v1alpha}/${loc_parent}/collections/default_collection/engines/${app_id}"
-    local widget_url="${engine_url}/widgetConfigs/default_search_widget_config"
     log_info "Attaching ServiceNow Data Stores (${SERVICENOW_COLLECTION_ID}_*) to Gemini Enterprise App '${app_id}'..."
     if [[ "${DRY_RUN:-false}" == "true" ]]; then
       ge_curl_request "PATCH" "${engine_url}?updateMask=dataStoreIds" "$(jq -n --argjson ids "${sn_ds_ids_json}" '{dataStoreIds: $ids}')" >/dev/null
@@ -371,13 +396,7 @@ attach_servicenow_datastores_to_engines() {
       local merged_payload
       merged_payload="$(jq -n --argjson cur "${eng_json}" --argjson snIds "${sn_ds_ids_json}" '{dataStoreIds: ((($cur.dataStoreIds // []) + $snIds) | unique)}')"
       ge_curl_request "PATCH" "${engine_url}?updateMask=dataStoreIds" "${merged_payload}" "true" >/dev/null || true
-
-      local wid_json merged_widget
-      wid_json="$(ge_curl_request "GET" "${widget_url}" "" "true" || echo '{}')"
-      merged_widget="$(jq -n --argjson w "${wid_json}" --argjson snComp "${sn_widget_component}" \
-        '{collectionComponents: (((($w.collectionComponents // []) | map(select(.name != $snComp.name))) + [$snComp]))}')"
-      ge_curl_request "PATCH" "${widget_url}?updateMask=collectionComponents" "${merged_widget}" "true" >/dev/null || true
-      log_ok "Attached ServiceNow Data Stores & Widget Display Names to Gemini Enterprise App '${app_id}'."
+      log_ok "Attached ServiceNow Data Stores ($(jq -r 'join(",")' <<<"${sn_ds_ids_json}")) to Gemini Enterprise App '${app_id}'."
     fi
   done
 }

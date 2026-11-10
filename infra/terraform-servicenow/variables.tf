@@ -26,13 +26,13 @@ variable "servicenow_secret_id" {
 variable "servicenow_collection_id" {
   description = "Discovery Engine Collection ID for the ServiceNow connector."
   type        = string
-  default     = "cymbal-servicenow"
+  default     = "cymbal-sn"
 }
 
 variable "servicenow_collection_display_name" {
   description = "Display name for the ServiceNow connector collection."
   type        = string
-  default     = "ServiceNow ITSM & Knowledge"
+  default     = "ServiceNow ITSM and Knowledge"
 }
 
 variable "servicenow_instance_uri" {
@@ -68,6 +68,13 @@ variable "servicenow_password" {
   sensitive   = true
 }
 
+variable "servicenow_refresh_token" {
+  description = "ServiceNow OAuth 2.0 Refresh Token (minted via /oauth_token.do)."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "servicenow_connector_mode" {
   description = "Primary connector mode for ServiceNow (DATA_INGESTION or FEDERATED)."
   type        = string
@@ -81,9 +88,9 @@ variable "servicenow_refresh_interval" {
 }
 
 variable "servicenow_entities" {
-  description = "Comma-separated ServiceNow entities to sync (knowledge_base,incident,catalog_item)."
+  description = "Comma-separated ServiceNow entities to sync (knowledge_base,incident,catalog)."
   type        = string
-  default     = "knowledge_base,incident,catalog_item"
+  default     = "knowledge_base,incident,catalog"
 }
 
 variable "enable_servicenow_actions" {
@@ -95,5 +102,5 @@ variable "enable_servicenow_actions" {
 variable "servicenow_enabled_actions" {
   description = "Comma-separated list of ServiceNow BAP actions to enable."
   type        = string
-  default     = "create_incident,update_incident,get_incident,add_comment_to_incident"
+  default     = "create_incident"
 }

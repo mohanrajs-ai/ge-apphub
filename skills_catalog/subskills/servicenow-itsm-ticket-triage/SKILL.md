@@ -7,7 +7,7 @@ description: Queries and updates ServiceNow IT Incidents, Knowledge Base article
 
 ## Environment Bindings
 - **Target Gemini Enterprise Engine:** `{{ENGINE_ID}}`
-- **Bound Data Stores:** `{{DATA_STORE_IDS}}` (`cymbal-servicenow_incident`, `cymbal-servicenow_knowledge_base`, `cymbal-servicenow_catalog_item`)
+- **Bound Data Stores:** `{{DATA_STORE_IDS}}` (`cymbal-servicenow_incident`, `cymbal-servicenow_knowledge_base`, `cymbal-servicenow_catalog`)
 - **Required Connector:** `servicenow` (`@1p-skill-manta-data-connector-skill-type-servicenow`)
 
 ## Execution Steps

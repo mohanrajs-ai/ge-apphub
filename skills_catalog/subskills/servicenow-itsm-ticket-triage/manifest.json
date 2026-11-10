@@ -12,7 +12,7 @@
   "required_entities": [
     "knowledge_base",
     "incident",
-    "catalog_item"
+    "catalog"
   ],
   "enabled_actions": [
     "create_incident",
