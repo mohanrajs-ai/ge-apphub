@@ -556,6 +556,12 @@ if [[ "${ENABLE_PHASE_3_GE_APPS}" == "true" ]]; then
       continue
     fi
     WORKSPACE_KEY="app-global-${APP_ID}"
+    SN_APP_FLAG=()
+    if [[ "${ENABLE_PHASE_2B_SERVICENOW_CONNECTOR}" == "true" || -f "${CONFIGS_DIR}/${CUSTOMER_NAME}-servicenow.env" ]]; then
+      if [[ "${APP_ID}" == "${CUSTOMER_NAME}-service-desk-app" || "${APP_ID}" == "${CUSTOMER_NAME}-dev-sandbox-app" ]]; then
+        SN_APP_FLAG=(--include-servicenow)
+      fi
+    fi
     if [[ "${DRY_RUN}" == "true" ]]; then
       "${SCRIPT_DIR}/create_app_from_template.sh" \
         --app-id "${APP_ID}" \
@@ -565,6 +571,7 @@ if [[ "${ENABLE_PHASE_3_GE_APPS}" == "true" ]]; then
         --customer-domain "${CUSTOMER_DOMAIN}" \
         --gcp-project-id "${GCP_PROJECT_ID}" \
         --access-group "${ACCESS_GROUP}" \
+        ${SN_APP_FLAG[@]+"${SN_APP_FLAG[@]}"} \
         --render-only
       echo "[DRY-RUN] Rendered 16-Point Template configs/${APP_ID}.env and would provision in isolated workspace '${WORKSPACE_KEY}'"
     else
@@ -575,7 +582,8 @@ if [[ "${ENABLE_PHASE_3_GE_APPS}" == "true" ]]; then
         --customer-company-name "${CUSTOMER_NAME}" \
         --customer-domain "${CUSTOMER_DOMAIN}" \
         --gcp-project-id "${GCP_PROJECT_ID}" \
-        --access-group "${ACCESS_GROUP}"
+        --access-group "${ACCESS_GROUP}" \
+        ${SN_APP_FLAG[@]+"${SN_APP_FLAG[@]}"}
     fi
   done
 fi

@@ -14,6 +14,7 @@ test_servicenow_terraform_files() {
   assert_file_exists "${TF_SN_DIR}/variables.tf" "terraform-servicenow/variables.tf exists"
   assert_file_exists "${TF_SN_DIR}/servicenow_connector.tf" "terraform-servicenow/servicenow_connector.tf exists"
   assert_file_exists "${TF_SN_DIR}/outputs.tf" "terraform-servicenow/outputs.tf exists"
+  assert_file_exists "${PROJECT_ROOT}/payloads/servicenow_connector.json.tmpl" "payloads/servicenow_connector.json.tmpl exists"
 
   local connector_tf vars_tf outputs_tf
   connector_tf="$(cat "${TF_SN_DIR}/servicenow_connector.tf")"
@@ -23,7 +24,9 @@ test_servicenow_terraform_files() {
   assert_contains "${connector_tf}" "resource \"google_discovery_engine_data_connector\" \"servicenow\"" "Defines ServiceNow connector resource"
   assert_contains "${connector_tf}" "= \"servicenow\"" "Uses servicenow data_source"
   assert_contains "${connector_tf}" "dynamic \"action_config\"" "Defines dynamic action_config block for BAP actions"
+  assert_contains "${connector_tf}" "dynamic \"bap_config\"" "Defines dynamic bap_config block for enabled_actions"
   assert_contains "${vars_tf}" "variable \"servicenow_secret_id\"" "Declares servicenow_secret_id variable"
+  assert_contains "${vars_tf}" "variable \"servicenow_enabled_actions\"" "Declares servicenow_enabled_actions variable"
   assert_contains "${outputs_tf}" "output \"servicenow_connector_name\"" "Exports servicenow_connector_name output"
 }
 
@@ -51,7 +54,23 @@ test_servicenow_scripts_and_cli_modes() {
   validate_servicenow_config >/dev/null 2>&1 || val_rc=$?
   assert_eq "1" "${val_rc}" "validate_servicenow_config fails when credentials are missing"
 
-  # Test loading credentials from Secret Manager JSON fallback
+  # Test auto-seeding Secret Manager secret when env vars are set and secret is 404
+  export SERVICENOW_INSTANCE_URI="https://dev99999.service-now.com"
+  export SERVICENOW_CLIENT_ID="sn-env-cid"
+  export SERVICENOW_CLIENT_SECRET="sn-env-sec"
+  export SERVICENOW_USERNAME="cymbal_ge_connector"
+  export SERVICENOW_PASSWORD="sn-env-pwd"
+  export MOCK_CURL_GET_STATUS="404"
+  export MOCK_CURL_POST_STATUS="200"
+  : > "${MOCK_CALL_LOG}"
+  ensure_and_load_servicenow_secret_credentials >/dev/null
+  local seed_calls
+  seed_calls="$(cat "${MOCK_CALL_LOG}")"
+  assert_contains "${seed_calls}" "secrets?secretId=cymbal-servicenow-connector-credentials" "Auto-creates Secret Manager secret when 404"
+  assert_contains "${seed_calls}" ":addVersion" "Auto-seeds initial JSON secret version"
+
+  # Test loading credentials from Secret Manager JSON fallback when env vars are unset
+  unset SERVICENOW_CLIENT_ID SERVICENOW_CLIENT_SECRET SERVICENOW_USERNAME SERVICENOW_PASSWORD
   export MOCK_CURL_GET_STATUS="200"
   local b64_json
   b64_json="$(printf '%s' '{"instance_uri":"https://dev99999.service-now.com","client_id":"sn-cid-111","client_secret":"sn-sec-222","username":"cymbal_ge_connector","password":"sn-pwd-333"}' | base64 | tr -d '\n')"
@@ -70,6 +89,7 @@ test_servicenow_scripts_and_cli_modes() {
   assert_contains "${sn_payload}" "\"entityName\": \"incident\"" "Rendered payload includes incident entity"
   assert_contains "${sn_payload}" "\"entityName\": \"catalog_item\"" "Rendered payload includes catalog_item entity"
   assert_contains "${sn_payload}" "\"createBapConnection\": true" "Rendered payload includes createBapConnection"
+  assert_contains "${sn_payload}" "\"create_incident\"" "Rendered payload includes bapConfig.enabledActions"
 
   ENABLE_SERVICENOW_ACTIONS="false"
   local sn_payload_no_act
@@ -77,22 +97,40 @@ test_servicenow_scripts_and_cli_modes() {
   ENABLE_SERVICENOW_ACTIONS="true"
   assert_contains "${sn_payload_no_act}" "\"dataSource\": \"servicenow\"" "Rendered payload without actions succeeds"
 
-  # Test configure_servicenow_connector, attach_servicenow_datastores_to_engines, and verify_servicenow_connector
-  export MOCK_CURL_GET_STATUS="200"
+  # Test configure_servicenow_connector (404 -> setUpDataConnectorV2 POST), attach_servicenow_datastores_to_engines, and verify_servicenow_connector
+  export MOCK_CURL_GET_STATUS="404"
   export MOCK_CURL_POST_STATUS="200"
   export MOCK_CURL_PATCH_STATUS="200"
-  export MOCK_CURL_BODY='{"name":"projects/cymbal-app-514110/locations/global/collections/default_collection/engines/cymbal-service-desk-app","state":"ACTIVE","dataStoreIds":["cymbal-m365-sp_file"]}'
   : > "${MOCK_CALL_LOG}"
   configure_servicenow_connector "true" >/dev/null
-  verify_servicenow_connector >/dev/null
+  local create_calls
+  create_calls="$(cat "${MOCK_CALL_LOG}")"
+  assert_contains "${create_calls}" "setUpDataConnectorV2?collectionId=cymbal-servicenow" "Provisions ServiceNow connector via setUpDataConnectorV2 when 404"
+
+  # Test configure_servicenow_connector (200 -> PATCH + engine & widget attachment)
+  export MOCK_CURL_GET_STATUS="200"
+  export MOCK_CURL_BODY='{"name":"projects/cymbal-app-514110/locations/global/collections/default_collection/engines/cymbal-service-desk-app","state":"ACTIVE","dataStoreIds":["cymbal-m365-sp_file"]}'
+  : > "${MOCK_CALL_LOG}"
+  configure_servicenow_connector "false" >/dev/null
+  run_servicenow_verification_and_summary >/dev/null
+  deregister_servicenow_connector >/dev/null
   unset MOCK_CURL_BODY
   local sn_calls
   sn_calls="$(cat "${MOCK_CALL_LOG}")"
-  assert_contains "${sn_calls}" "collections/cymbal-servicenow/dataConnector" "Configures and verifies cymbal-servicenow dataConnector"
+  assert_contains "${sn_calls}" "collections/cymbal-servicenow/dataConnector?updateMask=actionConfig,bapConfig" "Patches ServiceNow BAP actions"
   assert_contains "${sn_calls}" "engines/cymbal-service-desk-app?updateMask=dataStoreIds" "Attaches ServiceNow datastores to target GE engines"
+  assert_contains "${sn_calls}" "widgetConfigs/default_search_widget_config?updateMask=collectionComponents" "Registers ServiceNow display names on Web Widget"
 
-  # Test deploy_servicenow_main CLI modes
+  # Test deploy_servicenow_main CLI modes (both live mock and dry-run)
+  export MOCK_CURL_BODY="{\"name\":\"projects/cymbal-app-514110/secrets/cymbal-servicenow-connector-credentials\",\"payload\":{\"data\":\"${b64_json}\"}}"
   deploy_servicenow_main --help >/dev/null
+  deploy_servicenow_main --config "${cfg}" >/dev/null
+  deploy_servicenow_main --config "${cfg}" --curl-only >/dev/null
+  deploy_servicenow_main --config "${cfg}" --terraform-only >/dev/null
+  deploy_servicenow_main --config "${cfg}" --verify-only >/dev/null
+  deploy_servicenow_main --config "${cfg}" --destroy >/dev/null
+  unset MOCK_CURL_BODY
+
   deploy_servicenow_main --config "${cfg}" --dry-run >/dev/null
   deploy_servicenow_main --config "${cfg}" --terraform-only --dry-run >/dev/null
   deploy_servicenow_main --config "${cfg}" --curl-only --dry-run >/dev/null

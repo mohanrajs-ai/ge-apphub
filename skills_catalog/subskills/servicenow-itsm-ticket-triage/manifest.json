@@ -1,0 +1,23 @@
+{
+  "skill_id": "servicenow-itsm-ticket-triage",
+  "name": "servicenow-itsm-ticket-triage",
+  "display_name": "ServiceNow ITSM Ticket & Knowledge Triage",
+  "version": "1.0.0",
+  "skill_type": "ATOMIC",
+  "category": "subskill",
+  "entrypoint": "SKILL.md",
+  "required_connectors": [
+    "cymbal-servicenow"
+  ],
+  "required_entities": [
+    "knowledge_base",
+    "incident",
+    "catalog_item"
+  ],
+  "enabled_actions": [
+    "create_incident",
+    "update_incident",
+    "get_incident",
+    "add_comment_to_incident"
+  ]
+}

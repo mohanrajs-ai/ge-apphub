@@ -238,6 +238,11 @@ ALL_SKILLS = [
         "description": "Atomic M365 sub-skill that queries Microsoft Outlook Calendar for today's schedule, VIP attendees, and meeting conflicts.",
         "md_path": repo_root / "skills_catalog/subskills/m365-calendar-briefing/SKILL.md",
     },
+    {
+        "skill_id": "servicenow-itsm-ticket-triage",
+        "description": "Atomic ServiceNow sub-skill that queries and updates ServiceNow IT Incidents, Knowledge Base articles, and Service Catalog items via the ServiceNow Connector and BAP actions.",
+        "md_path": repo_root / "skills_catalog/subskills/servicenow-itsm-ticket-triage/SKILL.md",
+    },
 ]
 
 if skills_csv.strip():
@@ -265,6 +270,7 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
     t_teams = f"{prefix}/1p-skill-manta-data-connector-skill-type-teams"
     t_sp = f"{prefix}/1p-skill-manta-data-connector-skill-type-sharepoint"
     t_od = f"{prefix}/1p-skill-manta-data-connector-skill-type-onedrive"
+    t_sn = f"{prefix}/1p-skill-manta-data-connector-skill-type-servicenow"
 
     templates = {
         "daily-morning-summary": (
@@ -287,14 +293,15 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
             "3. Present an **Executive Escalation Resolution Plan** and **Customer Response Draft**."
         ),
         "service-desk-major-incident-bridge": (
-            "# Service Desk Major Incident Bridge (Composite M365 Skill)\n\n"
-            "Orchestrates 4 M365 Sub-Skills (`m365-teams-incident-swarm`, `sharepoint-policy-lookup`, `m365-onedrive-artifact-finder`, `m365-outlook-triage`).\n\n"
-            f"## Required Tools\n- `{t_teams}`\n- `{t_sp}`\n- `{t_od}`\n- `{t_mail}`\n\n"
+            "# Service Desk Major Incident Bridge (Composite ServiceNow + M365 Skill)\n\n"
+            "Orchestrates 5 Sub-Skills (`servicenow-itsm-ticket-triage`, `m365-teams-incident-swarm`, `sharepoint-policy-lookup`, `m365-onedrive-artifact-finder`, `m365-outlook-triage`).\n\n"
+            f"## Required Tools\n- `{t_sn}`\n- `{t_teams}`\n- `{t_sp}`\n- `{t_od}`\n- `{t_mail}`\n\n"
             "## Step-by-Step Workflow\n"
-            f"1. **Sub-Skill 1 (`m365-teams-incident-swarm`)**: Query `{t_teams}` for war-room timeline and owners.\n"
-            f"2. **Sub-Skill 2 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for major incident runbooks.\n"
-            f"3. **Sub-Skill 3 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for RCA drafts and telemetry sheets.\n"
-            f"4. **Sub-Skill 4 (`m365-outlook-triage`)**: Query `{t_mail}` for customer impact and synthesize a **Major Incident SitRep**."
+            f"1. **Sub-Skill 1 (`servicenow-itsm-ticket-triage`)**: Query `{t_sn}` for active ServiceNow incidents (`INC*`), known-error KB articles, and Service Catalog items.\n"
+            f"2. **Sub-Skill 2 (`m365-teams-incident-swarm`)**: Query `{t_teams}` for war-room timeline and owners.\n"
+            f"3. **Sub-Skill 3 (`sharepoint-policy-lookup`)**: Query `{t_sp}` for major incident runbooks.\n"
+            f"4. **Sub-Skill 4 (`m365-onedrive-artifact-finder`)**: Query `{t_od}` for RCA drafts and telemetry sheets.\n"
+            f"5. **Sub-Skill 5 (`m365-outlook-triage`)**: Query `{t_mail}` for customer impact and synthesize a **Major Incident SitRep**."
         ),
         "sla-breach-financial-exposure-calculator": (
             "# SLA Breach & FinOps Financial Exposure Calculator (Universal Agent Exclusive Skill)\n\n"
@@ -340,6 +347,11 @@ def render_engine_instruction(skill_id: str, engine_id: str) -> str:
             "# M365 Outlook Calendar Schedule & Conflict Briefing (Atomic Sub-Skill)\n\n"
             f"## Required Tools\n- `{t_cal}`\n\n"
             f"1. Fetch events from `{t_cal}`.\n2. Highlight VIP meetings, scheduling conflicts, and preparation topics."
+        ),
+        "servicenow-itsm-ticket-triage": (
+            "# ServiceNow ITSM Ticket & Knowledge Triage (Atomic Sub-Skill)\n\n"
+            f"## Required Tools\n- `{t_sn}`\n\n"
+            f"1. Search `{t_sn}` (`knowledge_base`, `incident`, `catalog_item`) for active incidents, KB articles, and catalog items.\n2. Execute governed ServiceNow BAP actions (`create_incident`, `update_incident`, `get_incident`, `add_comment_to_incident`) when requested."
         ),
     }
     return templates[skill_id]

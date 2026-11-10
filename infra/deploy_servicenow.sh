@@ -41,6 +41,52 @@ Options:
 EOF
 }
 
+import_existing_servicenow_resources() {
+  local tf_dir="$1"
+  if [[ "${DRY_RUN:-false}" == "true" || -z "${GCP_PROJECT_ID:-}" ]]; then
+    return 0
+  fi
+
+  log_info "Reconciling existing Secret Manager & ServiceNow Data Connector resources into Terraform state..."
+  local state_list
+  state_list="$(terraform -chdir="${tf_dir}" state list 2>/dev/null || true)"
+
+  local secret_id="${SERVICENOW_SECRET_ID:-cymbal-servicenow-connector-credentials}"
+  local sm_base="https://secretmanager.googleapis.com/v1/projects/${GCP_PROJECT_ID}"
+
+  if ! grep -qF "google_secret_manager_secret.servicenow_credentials" <<<"${state_list}"; then
+    local sec_resp sec_name
+    sec_resp="$(ge_curl_request "GET" "${sm_base}/secrets/${secret_id}" "" "true" || echo '{}')"
+    sec_name="$(jq -r '.name // empty' <<<"${sec_resp}" 2>/dev/null || true)"
+    if [[ -n "${sec_name}" ]]; then
+      log_info "Importing existing Secret Manager secret '${secret_id}' -> google_secret_manager_secret.servicenow_credentials"
+      terraform -chdir="${tf_dir}" import -input=false "google_secret_manager_secret.servicenow_credentials" "projects/${GCP_PROJECT_ID}/secrets/${secret_id}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if ! grep -qF "google_secret_manager_secret_version.servicenow_credentials_initial" <<<"${state_list}"; then
+    local ver_meta ver_name
+    ver_meta="$(ge_curl_request "GET" "${sm_base}/secrets/${secret_id}/versions/latest" "" "true" || echo '{}')"
+    ver_name="$(jq -r '.name // empty' <<<"${ver_meta}" 2>/dev/null || true)"
+    if [[ -n "${ver_name}" ]]; then
+      log_info "Importing existing Secret Manager secret version '${ver_name}' -> google_secret_manager_secret_version.servicenow_credentials_initial"
+      terraform -chdir="${tf_dir}" import -input=false "google_secret_manager_secret_version.servicenow_credentials_initial" "${ver_name}" >/dev/null 2>&1 || true
+    fi
+  fi
+
+  if ! grep -qF "google_discovery_engine_data_connector.servicenow" <<<"${state_list}"; then
+    local base_v1alpha loc_parent conn_resp conn_name
+    base_v1alpha="$(ge_api_base_url "${GE_LOCATION:-global}" "v1alpha")"
+    loc_parent="projects/${GCP_PROJECT_ID}/locations/${GE_LOCATION:-global}"
+    conn_resp="$(ge_curl_request "GET" "${base_v1alpha}/${loc_parent}/collections/${SERVICENOW_COLLECTION_ID}/dataConnector" "" "true" || echo '{}')"
+    conn_name="$(jq -r '.name // empty' <<<"${conn_resp}" 2>/dev/null || true)"
+    if [[ -n "${conn_name}" ]]; then
+      log_info "Importing existing ServiceNow connector '${SERVICENOW_COLLECTION_ID}' -> google_discovery_engine_data_connector.servicenow"
+      terraform -chdir="${tf_dir}" import -input=false "google_discovery_engine_data_connector.servicenow" "${loc_parent}/collections/${SERVICENOW_COLLECTION_ID}/dataConnector" >/dev/null 2>&1 || true
+    fi
+  fi
+}
+
 run_servicenow_terraform_phase() {
   local action="${1:-apply}"
   local tf_dir="${TF_SN_DIR_OVERRIDE:-${DEPLOY_SN_ROOT}/terraform-servicenow}"
@@ -69,6 +115,10 @@ EOF
   terraform -chdir="${tf_dir}" workspace select -or-create "${workspace}" >/dev/null
   terraform -chdir="${tf_dir}" validate >/dev/null
 
+  if [[ "${action}" != "destroy" ]]; then
+    import_existing_servicenow_resources "${tf_dir}"
+  fi
+
   if [[ "${action}" == "destroy" ]]; then
     if [[ "${DRY_RUN:-false}" != "true" ]]; then
       terraform -chdir="${tf_dir}" destroy -auto-approve -input=false >/dev/null
@@ -76,15 +126,6 @@ EOF
     rm -f "${tf_dir}/backend_override.tf"
     log_ok "ServiceNow Terraform destroy phase complete."
     return 0
-  fi
-
-  # Import existing secret if already created by deploy_servicenow_bootstrap.sh
-  if [[ "${DRY_RUN:-false}" != "true" ]]; then
-    local state_list
-    state_list="$(terraform -chdir="${tf_dir}" state list 2>/dev/null || true)"
-    if ! grep -qF "google_secret_manager_secret.servicenow_credentials" <<<"${state_list}"; then
-      terraform -chdir="${tf_dir}" import -input=false "google_secret_manager_secret.servicenow_credentials" "projects/${GCP_PROJECT_ID}/secrets/${SERVICENOW_SECRET_ID}" >/dev/null 2>&1 || true
-    fi
   fi
 
   terraform -chdir="${tf_dir}" plan -out=tfplan -input=false >/dev/null
@@ -150,18 +191,19 @@ deploy_servicenow_main() {
       ;;
     curl-only)
       configure_servicenow_connector "true"
-      verify_servicenow_connector
+      run_servicenow_verification_and_summary
       ;;
     verify-only)
-      verify_servicenow_connector
+      run_servicenow_verification_and_summary
       ;;
     destroy)
+      deregister_servicenow_connector
       run_servicenow_terraform_phase "destroy"
       ;;
     full)
       run_servicenow_terraform_phase "apply"
       configure_servicenow_connector "false"
-      verify_servicenow_connector
+      run_servicenow_verification_and_summary
       ;;
   esac
 

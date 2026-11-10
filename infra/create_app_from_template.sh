@@ -71,6 +71,7 @@ ENABLE_SKILLS="true"
 SKILL_SHARING_POLICY="ADMIN_APPROVAL_REQUIRED"
 SKILL_APPROVER_GROUP=""
 ENABLE_PROJECTS="true"
+INCLUDE_SERVICENOW="false"
 RENDER_ONLY="false"
 DRY_RUN="false"
 
@@ -168,6 +169,10 @@ while [[ $# -gt 0 ]]; do
       ENABLE_PROJECTS="$2"
       shift 2
       ;;
+    --include-servicenow)
+      INCLUDE_SERVICENOW="true"
+      shift 1
+      ;;
     --render-only)
       RENDER_ONLY="true"
       shift 1
@@ -229,7 +234,7 @@ python3 - "${TEMPLATE_FILE}" "${OUTPUT_ENV_FILE}" \
   "${CUSTOMER_DOMAIN}" "${CLOUD_IDENTITY_CUSTOMER_ID}" "${GE_APP_ACCESS_GROUP}" \
   "${GE_ASSISTANT_SYSTEM_INSTRUCTION}" "${LOGO_URI}" "${CHAT_RETENTION_DAYS}" \
   "${ENABLE_WEB_GROUNDING}" "${ENABLE_MODEL_ARMOR}" "${ENABLE_KNOWLEDGE_CATALOG}" "${ENABLE_PKG}" \
-  "${ALLOW_AGENT_SHARING}" "${ENABLE_SKILLS}" "${SKILL_SHARING_POLICY}" "${SKILL_APPROVER_GROUP}" "${ENABLE_PROJECTS}" <<'PYEOF'
+  "${ALLOW_AGENT_SHARING}" "${ENABLE_SKILLS}" "${SKILL_SHARING_POLICY}" "${SKILL_APPROVER_GROUP}" "${ENABLE_PROJECTS}" "${INCLUDE_SERVICENOW}" <<'PYEOF'
 import sys
 
 (
@@ -259,6 +264,7 @@ import sys
     skill_sharing_policy,
     skill_approver_group,
     enable_projects,
+    include_servicenow,
 ) = sys.argv
 
 with open(tmpl_path, "r", encoding="utf-8") as f:
@@ -314,6 +320,16 @@ content = content.replace('GE_REQUIRE_ADMIN_APPROVAL_FOR_SKILL_SHARING="true"', 
 content = content.replace(f'GE_SKILL_APPROVER_GROUP="ge-platform-admins@{domain}"', f'GE_SKILL_APPROVER_GROUP="{skill_approver_group}"')
 content = content.replace('GE_FEATURE_PROJECTS="FEATURE_STATE_ON"', f'GE_FEATURE_PROJECTS="{feat_projects}"')
 content = content.replace('GE_ENABLE_PROJECTS="true"', f'GE_ENABLE_PROJECTS="{enable_projects.lower()}"')
+
+if include_servicenow.lower() == "true":
+    content = content.replace(
+        f'GE_COMMON_CONNECTOR_COLLECTIONS="{customer_name}-m365-sp,{customer_name}-m365-od,{customer_name}-m365-ol,{customer_name}-m365-teams"',
+        f'GE_COMMON_CONNECTOR_COLLECTIONS="{customer_name}-m365-sp,{customer_name}-m365-od,{customer_name}-m365-ol,{customer_name}-m365-teams,{customer_name}-servicenow"',
+    )
+    content = content.replace(
+        f'GE_COMMON_CONNECTOR_DATA_STORE_IDS="{customer_name}-m365-sp_file,{customer_name}-m365-sp_page,{customer_name}-m365-od_file,{customer_name}-m365-ol_mail,{customer_name}-m365-ol_mail-attachment,{customer_name}-m365-ol_calendar,{customer_name}-m365-ol_contact,{customer_name}-m365-teams_channel-message,{customer_name}-m365-teams_chat-message"',
+        f'GE_COMMON_CONNECTOR_DATA_STORE_IDS="{customer_name}-m365-sp_file,{customer_name}-m365-sp_page,{customer_name}-m365-od_file,{customer_name}-m365-ol_mail,{customer_name}-m365-ol_mail-attachment,{customer_name}-m365-ol_calendar,{customer_name}-m365-ol_contact,{customer_name}-m365-teams_channel-message,{customer_name}-m365-teams_chat-message,{customer_name}-servicenow_knowledge_base,{customer_name}-servicenow_incident,{customer_name}-servicenow_catalog_item"',
+    )
 
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(content)

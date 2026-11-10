@@ -58,6 +58,11 @@ locals {
     if trimspace(e) != ""
   ]
 
+  servicenow_action_list = [
+    for a in split(",", var.servicenow_enabled_actions) : trimspace(a)
+    if trimspace(a) != ""
+  ]
+
   servicenow_supports_actions = var.enable_servicenow_actions == "true"
 }
 
@@ -110,6 +115,14 @@ resource "google_discovery_engine_data_connector" "servicenow" {
         username      = local.effective_username
         password      = local.effective_password
       }
+    }
+  }
+
+  dynamic "bap_config" {
+    for_each = local.servicenow_supports_actions && length(local.servicenow_action_list) > 0 ? [1] : []
+    content {
+      supported_connector_modes = ["ACTIONS"]
+      enabled_actions           = local.servicenow_action_list
     }
   }
 

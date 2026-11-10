@@ -1,0 +1,60 @@
+{
+  "dataSource": "servicenow",
+  "params": {
+    "instance_uri": "${SERVICENOW_INSTANCE_URI}",
+    "client_id": "${SERVICENOW_CLIENT_ID}",
+    "client_secret": "${SERVICENOW_CLIENT_SECRET}",
+    "username": "${SERVICENOW_USERNAME}",
+    "user_account": "${SERVICENOW_USERNAME}",
+    "password": "${SERVICENOW_PASSWORD}"
+  },
+  "refreshInterval": "${SERVICENOW_REFRESH_INTERVAL}",
+  "entities": [
+    {
+      "entityName": "knowledge_base"
+    },
+    {
+      "entityName": "incident"
+    },
+    {
+      "entityName": "catalog_item"
+    }
+  ],
+  "connectorModes": [
+    "${SERVICENOW_CONNECTOR_MODE}",
+    "ACTIONS"
+  ],
+  "destinationConfigs": [
+    {
+      "key": "url",
+      "destinations": [
+        {
+          "host": "${SERVICENOW_INSTANCE_URI}"
+        }
+      ]
+    }
+  ],
+  "actionConfig": {
+    "isActionConfigured": true,
+    "createBapConnection": true,
+    "actionParams": {
+      "auth_type": "OAUTH",
+      "instance_uri": "${SERVICENOW_INSTANCE_URI}",
+      "client_id": "${SERVICENOW_CLIENT_ID}",
+      "client_secret": "${SERVICENOW_CLIENT_SECRET}",
+      "username": "${SERVICENOW_USERNAME}",
+      "password": "${SERVICENOW_PASSWORD}"
+    }
+  },
+  "bapConfig": {
+    "supportedConnectorModes": [
+      "ACTIONS"
+    ],
+    "enabledActions": [
+      "create_incident",
+      "update_incident",
+      "get_incident",
+      "add_comment_to_incident"
+    ]
+  }
+}

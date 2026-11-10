@@ -1,5 +1,7 @@
+# Variables for the ServiceNow Discovery Engine Data Connector
+
 variable "project_id" {
-  description = "Google Cloud Project ID hosting Gemini Enterprise and Secret Manager."
+  description = "Google Cloud Project ID hosting Discovery Engine and Secret Manager."
   type        = string
 }
 
@@ -13,11 +15,6 @@ variable "location" {
   description = "Discovery Engine multi-region location (global, us, eu)."
   type        = string
   default     = "global"
-
-  validation {
-    condition     = contains(["global", "us", "eu"], var.location)
-    error_message = "location must be one of: global, us, eu."
-  }
 }
 
 variable "servicenow_secret_id" {
@@ -33,9 +30,9 @@ variable "servicenow_collection_id" {
 }
 
 variable "servicenow_collection_display_name" {
-  description = "Display name for the ServiceNow Discovery Engine collection."
+  description = "Display name for the ServiceNow connector collection."
   type        = string
-  default     = "ServiceNow ITSM & Knowledge (cymbal)"
+  default     = "ServiceNow ITSM & Knowledge"
 }
 
 variable "servicenow_instance_uri" {
@@ -59,7 +56,7 @@ variable "servicenow_client_secret" {
 }
 
 variable "servicenow_username" {
-  description = "ServiceNow integration username."
+  description = "ServiceNow integration username (e.g. cymbal_ge_connector)."
   type        = string
   default     = ""
 }
@@ -72,24 +69,19 @@ variable "servicenow_password" {
 }
 
 variable "servicenow_connector_mode" {
-  description = "Primary ServiceNow connector mode (DATA_INGESTION or FEDERATED)."
+  description = "Primary connector mode for ServiceNow (DATA_INGESTION or FEDERATED)."
   type        = string
   default     = "DATA_INGESTION"
-
-  validation {
-    condition     = contains(["DATA_INGESTION", "FEDERATED", "FEDERATED_AND_EUA", "EUA", "ACTIONS"], var.servicenow_connector_mode)
-    error_message = "servicenow_connector_mode must be one of: DATA_INGESTION, FEDERATED, FEDERATED_AND_EUA, EUA, ACTIONS."
-  }
 }
 
 variable "servicenow_refresh_interval" {
-  description = "Refresh interval for ServiceNow data synchronization."
+  description = "Sync refresh interval for ServiceNow ingestion."
   type        = string
   default     = "86400s"
 }
 
 variable "servicenow_entities" {
-  description = "Comma-separated list of ServiceNow entities to index (knowledge_base,incident,catalog_item)."
+  description = "Comma-separated ServiceNow entities to sync (knowledge_base,incident,catalog_item)."
   type        = string
   default     = "knowledge_base,incident,catalog_item"
 }
@@ -98,4 +90,10 @@ variable "enable_servicenow_actions" {
   description = "Whether to enable ServiceNow BAP Write Actions (create_incident, update_incident, etc.)."
   type        = string
   default     = "true"
+}
+
+variable "servicenow_enabled_actions" {
+  description = "Comma-separated list of ServiceNow BAP actions to enable."
+  type        = string
+  default     = "create_incident,update_incident,get_incident,add_comment_to_incident"
 }
